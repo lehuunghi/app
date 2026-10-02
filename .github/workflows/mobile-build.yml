@@ -36,7 +36,9 @@ jobs:
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
   ios:
-    runs-on: macos-latest
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@v4
         with:
@@ -50,6 +52,12 @@ jobs:
       - run: npm run mobile:build
       - run: npx cap sync ios
       - run: xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -configuration Debug -derivedDataPath ios/build CODE_SIGNING_ALLOWED=NO build
+      - run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app webmail-ios-simulator.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: webmail-ios-simulator
+          path: webmail-ios-simulator.zip
+          if-no-files-found: error
       - name: Launch the iOS app on a simulator
         run: node scripts/ios-smoke.mjs
       - uses: actions/upload-artifact@v4
@@ -58,12 +66,6 @@ jobs:
           name: ios-app-smoke-test
           path: ios-smoke
           if-no-files-found: warn
-      - run: ditto -c -k --sequesterRsrc --keepParent ios/build/Build/Products/Debug-iphonesimulator/App.app webmail-ios-simulator.zip
-      - uses: actions/upload-artifact@v4
-        with:
-          name: webmail-ios-simulator
-          path: webmail-ios-simulator.zip
-          if-no-files-found: error
 
   android-smoke:
     needs: android

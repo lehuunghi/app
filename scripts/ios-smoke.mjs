@@ -1,12 +1,18 @@
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 mkdirSync("ios-smoke", { recursive: true });
-const run = (...args) => execFileSync("xcrun", args, { encoding: "utf8", timeout: 180000 });
+const run = (...args) => {
+  console.log("xcrun " + args.join(" "));
+  try { return execFileSync("xcrun", args, { encoding: "utf8", timeout: 300000 }); }
+  catch (error) { throw new Error(args.slice(0, 2).join(" ") + ": " + error.message); }
+};
 let report;
 let device;
 try {
   const devices = JSON.parse(run("simctl", "list", "devices", "available", "--json")).devices;
-  device = Object.values(devices).flat().find((d) => d.isAvailable && d.name.startsWith("iPhone"));
+  device = Object.entries(devices).filter(([runtime]) => runtime.includes(".iOS-"))
+    .sort(([a], [b]) => b.localeCompare(a)).flatMap(([, devices]) => devices)
+    .find((d) => d.isAvailable && d.name.startsWith("iPhone"));
   if (!device) throw new Error("No iPhone simulator available");
   if (device.state !== "Booted") run("simctl", "boot", device.udid);
   run("simctl", "bootstatus", device.udid, "-b");
