@@ -12,7 +12,8 @@ async function check(path) {
     const text = await response.text();
     let data;
     try { data = JSON.parse(text); } catch { /* record non-JSON endpoints */ }
-    const result = { path, status: response.status, type, json: data !== undefined };
+    const result = { path, status: response.status, type, json: data !== undefined,
+      location: response.headers.get("location"), authenticate: response.headers.get("www-authenticate") };
     if (path === "/api/config") result.appName = data?.appName;
     if (path === "/api/health") result.healthy = data?.ok === true;
     if (data?.error) result.error = data.error;
@@ -29,6 +30,8 @@ const config = await check("/api/config");
 const health = await check("/api/health");
 const session = await check("/api/auth/session");
 await check("/.well-known/jmap");
+await check("/jmap/session");
+await check("/jmap/");
 await check("/");
 const compatible = config?.response.status === 200 && typeof config.data?.appName === "string"
   && health?.data?.ok === true && session?.response.status === 401;
