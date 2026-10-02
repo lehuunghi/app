@@ -9,9 +9,7 @@ import { DEFAULT_APP_NAME } from "@/lib/brand";
 import { t } from "@/lib/i18n";
 import { UI_LANGUAGES } from "@/lib/languages";
 import { useSettings } from "@/store/settings";
-import { isNativeApp, mobileServerUrl, clearMobileServer } from "@/lib/mobile/config";
-import { clearNativeSession } from "@/lib/mobile/runtime";
-import { clearAllData, setDeviceTrusted } from "@/lib/storage";
+import { isNativeApp, mobileServerUrl } from "@/lib/mobile/config";
 
 export function LoginPage() {
   const uiLanguage = useSettings((s) => s.settings.uiLanguage);
@@ -135,12 +133,6 @@ export function LoginPage() {
         </p>
         {isNativeApp() && <div className="hint mt-16">
           <p className="truncate">{mobileServerUrl()}</p>
-          <button type="button" className="btn btn-ghost" disabled={busy} onClick={async () => {
-            setBusy(true);
-            try { await clearNativeSession(); } catch { /* the sign-out barrier still requires a new login */ }
-            setDeviceTrusted(false);
-            clearAllData(); clearMobileServer(); window.location.reload();
-          }}>{t("Change Webmail server")}</button>
         </div>}
       </form>
     </div>

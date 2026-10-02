@@ -1,37 +1,40 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: () => true } }));
-import { clearMobileServer, isNativeApiResource, normalizeServerUrl, saveMobileServer } from "../config";
+import { discardLegacyMobileServer, isNativeApiResource, mobileServerUrl, MOBILE_SERVER_URL } from "../config";
 import { withBase } from "@/lib/basePath";
 
 beforeEach(() => { localStorage.clear(); vi.stubEnv("VITE_MOBILE_BUILD", "true"); });
+afterEach(() => { vi.unstubAllEnvs(); });
 
-describe("mobile server boundary", () => {
-  it("normalizes an HTTPS mount and keeps bundled assets local", () => {
-    saveMobileServer(" https://webmail.example.com/mail/ ");
-    expect(withBase("/api/auth/login")).toBe("https://webmail.example.com/mail/api/auth/login");
+describe("fixed mobile server boundary", () => {
+  it("connects to jmail.vn on a clean installation and keeps bundled assets local", () => {
+    expect(mobileServerUrl()).toBe("https://jmail.vn");
+    expect(withBase("/api/auth/login")).toBe("https://jmail.vn/api/auth/login");
+    expect(withBase("/api/auth/session")).toBe("https://jmail.vn/api/auth/session");
     expect(withBase("/img/webmail.svg")).toBe("/img/webmail.svg");
-    expect(isNativeApiResource("https://webmail.example.com/mail/api/blob/a/b/x")).toBe(true);
-    expect(isNativeApiResource("https://webmail.example.com/other/api/blob/a/b/x")).toBe(false);
-    expect(isNativeApiResource("https://webmail.example.com.evil.test/mail/api/blob/a/b/x")).toBe(false);
-    expect(isNativeApiResource("https://webmail.example.com/mail/api/../outside")).toBe(false);
+    expect(isNativeApiResource("https://jmail.vn/api/blob/a/b/x")).toBe(true);
   });
 
-  it("never saves URL credentials, token queries, fragments or HTTP", () => {
-    for (const url of ["http://mail.example.com", "https://user:secret@mail.example.com", "https://mail.example.com/?token=secret", "https://mail.example.com/#token", "javascript:alert(1)", "not a URL"]) {
-      expect(() => normalizeServerUrl(url)).toThrow();
+  it("ignores legacy server settings and never accepts another host's resources", () => {
+    localStorage.setItem("webmail:mobile-server", "https://old.example.com/mail");
+    expect(mobileServerUrl()).toBe(MOBILE_SERVER_URL);
+    expect(withBase("/api/jmap")).toBe("https://jmail.vn/api/jmap");
+    for (const url of ["https://old.example.com/api/blob/a/b/x", "https://jmail.vn.evil.test/api/blob/a/b/x", "https://jmail.vn/api/../outside", "http://jmail.vn/api/blob/a", "https://user:secret@jmail.vn/api/blob/a", "https://jmail.vn/api/blob/a#token"]) {
+      expect(isNativeApiResource(url)).toBe(false);
     }
-    expect(localStorage.length).toBe(0);
   });
 
-  it("requires server selection before native API requests", () => {
-    expect(() => withBase("/api/auth/session")).toThrow();
-    saveMobileServer("https://mail.example.com");
-    clearMobileServer();
-    expect(() => withBase("/api/auth/session")).toThrow();
+  it("discards another deployment's setting once, while preserving a jmail upgrade", () => {
+    localStorage.setItem("webmail:mobile-server", "https://old.example.com");
+    expect(discardLegacyMobileServer()).toBe(true);
+    expect(localStorage.getItem("webmail:mobile-server")).toBeNull();
+    expect(discardLegacyMobileServer()).toBe(false);
+    localStorage.setItem("webmail:mobile-server", "https://jmail.vn/");
+    expect(discardLegacyMobileServer()).toBe(false);
+    expect(localStorage.getItem("webmail:mobile-server")).toBeNull();
   });
 
   it("keeps ordinary web builds on their own origin", () => {
-    saveMobileServer("https://mail.example.com");
     vi.stubEnv("VITE_MOBILE_BUILD", "false");
     expect(withBase("/api/auth/login")).toBe("/api/auth/login");
   });

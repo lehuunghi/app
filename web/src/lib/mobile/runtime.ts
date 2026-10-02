@@ -1,6 +1,6 @@
 import { App as NativeApp } from "@capacitor/app";
 import { Capacitor, CapacitorCookies, type PluginListenerHandle } from "@capacitor/core";
-import { isNativeApp, mobileServerUrl, blockNativeSession } from "./config";
+import { isNativeApp, mobileServerUrl, blockNativeSession, discardLegacyMobileServer } from "./config";
 
 let active = true;
 export function nativeAppIsActive(): boolean { return active; }
@@ -29,6 +29,12 @@ export function initializeNative(): Promise<void> {
 
 async function setupNative(): Promise<void> {
   document.documentElement.dataset.nativeApp = "true";
+  if (discardLegacyMobileServer()) {
+    blockNativeSession();
+    const { clearAllData, setDeviceTrusted } = await import("@/lib/storage");
+    setDeviceTrusted(false);
+    clearAllData();
+  }
   const handles: PluginListenerHandle[] = [];
   try {
     active = (await NativeApp.getState()).isActive;

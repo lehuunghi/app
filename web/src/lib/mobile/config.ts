@@ -7,31 +7,22 @@ export function isNativeApp(): boolean {
   return import.meta.env.VITE_MOBILE_BUILD === "true" && Capacitor.isNativePlatform();
 }
 
-/** Accept only an HTTPS app root; never store credentials or URL tokens. */
-export function normalizeServerUrl(input: string): string {
-  const url = new URL(input.trim());
-  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) {
-    throw new Error("Use an HTTPS server address without credentials, query or fragment.");
-  }
-  url.pathname = url.pathname.replace(/\/+$/, "");
-  return url.toString().replace(/\/$/, "");
+/** This app always connects to the same deployment, including after upgrades. */
+export const MOBILE_SERVER_URL = "https://jmail.vn";
+
+export function mobileServerUrl(): string {
+  return MOBILE_SERVER_URL;
 }
 
-export function mobileServerUrl(): string | null {
+/** Discard the old picker value and tell startup to clear another server's data. */
+export function discardLegacyMobileServer(): boolean {
   try {
-    const stored = localStorage.getItem(SERVER_KEY);
-    return stored ? normalizeServerUrl(stored) : null;
+    const previous = localStorage.getItem(SERVER_KEY);
+    localStorage.removeItem(SERVER_KEY);
+    return Boolean(previous && previous.replace(/\/+$/, "") !== MOBILE_SERVER_URL);
   } catch {
-    return null;
+    return false;
   }
-}
-
-export function saveMobileServer(input: string): void {
-  localStorage.setItem(SERVER_KEY, normalizeServerUrl(input));
-}
-
-export function clearMobileServer(): void {
-  localStorage.removeItem(SERVER_KEY);
 }
 
 /** Prevent an old native cookie from restoring a session after offline logout. */
@@ -56,16 +47,13 @@ export function allowNativeSession(): void {
 
 export function nativeApiUrl(path: string): string | null {
   if (!isNativeApp() || !path.startsWith("/api/")) return null;
-  const server = mobileServerUrl();
-  if (!server) throw new Error("Choose your Webmail server before signing in.");
-  return server + path;
+  return MOBILE_SERVER_URL + path;
 }
 
 /** Resource checks are scoped to this app's API, not merely to the host. */
 export function isNativeApiResource(input: string): boolean {
   if (!isNativeApp()) return false;
-  const server = mobileServerUrl();
-  if (!server) return false;
+  const server = MOBILE_SERVER_URL;
   try {
     const url = new URL(input);
     return !url.username && !url.password && !url.hash && url.href.startsWith(server + "/api/");

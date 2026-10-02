@@ -1,13 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { initializeNative } from "./runtime";
-import { mobileServerUrl } from "./config";
-import { ServerSetup } from "./ServerSetup";
 import { whenLanguageReady, t } from "@/lib/i18n";
 import { withBase } from "@/lib/basePath";
 import { Spinner } from "@/ui/misc";
 
 export function NativeRoot({ children }: { children: ReactNode }) {
-  const [phase, setPhase] = useState<"loading" | "server" | "ready" | "failed">("loading");
+  const [phase, setPhase] = useState<"loading" | "ready" | "failed">("loading");
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
@@ -15,7 +13,7 @@ export function NativeRoot({ children }: { children: ReactNode }) {
       try {
         await whenLanguageReady();
         await initializeNative();
-        if (live) setPhase(mobileServerUrl() ? "ready" : "server");
+        if (live) setPhase("ready");
       } catch {
         if (live) setPhase("failed");
       }
@@ -23,7 +21,6 @@ export function NativeRoot({ children }: { children: ReactNode }) {
     return () => { live = false; };
   }, [attempt]);
   if (phase === "ready") return children;
-  if (phase === "server") return <ServerSetup onReady={() => setPhase("ready")} />;
   if (phase === "loading") return <div className="center" style={{ height: "100%" }}><Spinner size="lg" /></div>;
   return <div className="login-page"><div className="login-card">
     <div className="logo"><img src={withBase("/img/webmail.svg")} alt="" width={80} height={80} /><h1>Webmail</h1></div>

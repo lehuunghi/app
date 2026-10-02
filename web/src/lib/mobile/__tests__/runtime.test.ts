@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const native = vi.hoisted(() => ({
-  state: vi.fn(), listen: vi.fn(), remove: vi.fn(), clearCookies: vi.fn(), clearCache: vi.fn(), block: vi.fn(), platform: "android",
+  state: vi.fn(), listen: vi.fn(), remove: vi.fn(), clearCookies: vi.fn(), clearCache: vi.fn(), block: vi.fn(), legacy: vi.fn(), clearData: vi.fn(), trust: vi.fn(), platform: "android",
 }));
 vi.mock("@capacitor/app", () => ({ App: { getState: native.state, addListener: native.listen } }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => native.platform }, CapacitorCookies: { clearCookies: native.clearCookies } }));
-vi.mock("../config", () => ({ isNativeApp: () => true, mobileServerUrl: () => "https://mail.example.com", blockNativeSession: native.block }));
+vi.mock("../config", () => ({ isNativeApp: () => true, mobileServerUrl: () => "https://jmail.vn", blockNativeSession: native.block, discardLegacyMobileServer: native.legacy }));
+vi.mock("@/lib/storage", () => ({ clearAllData: native.clearData, setDeviceTrusted: native.trust }));
 vi.mock("../files", () => ({ clearNativeShareCache: native.clearCache }));
 
 beforeEach(() => {
@@ -17,9 +18,21 @@ beforeEach(() => {
   native.clearCookies.mockReset().mockResolvedValue(undefined);
   native.clearCache.mockReset().mockResolvedValue(undefined);
   native.block.mockReset();
+  native.legacy.mockReset().mockReturnValue(false);
+  native.clearData.mockReset(); native.trust.mockReset();
 });
 
 describe("native startup and sign-out recovery", () => {
+  it("clears cached account data and blocks restore when upgrading from another server", async () => {
+    native.legacy.mockReturnValueOnce(true);
+    const runtime = await import("../runtime");
+    await runtime.initializeNative();
+    expect(native.block).toHaveBeenCalledOnce();
+    expect(native.trust).toHaveBeenCalledWith(false);
+    expect(native.clearData).toHaveBeenCalledOnce();
+    expect(native.clearData.mock.invocationCallOrder[0]).toBeLessThan(native.state.mock.invocationCallOrder[0]!);
+  });
+
   it("removes partial listeners on failure and allows one successful retry", async () => {
     native.listen.mockResolvedValueOnce({ remove: native.remove }).mockRejectedValueOnce(new Error("bridge failed"));
     const runtime = await import("../runtime");

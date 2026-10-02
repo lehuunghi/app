@@ -6,7 +6,6 @@ const bridge = vi.hoisted(() => ({ initialize: vi.fn(), config: vi.fn() }));
 vi.mock("../runtime", () => ({ initializeNative: bridge.initialize }));
 vi.mock("@capacitor/core", async (original) => ({ ...await original<object>(), CapacitorHttp: { get: bridge.config } }));
 import { NativeRoot } from "../NativeRoot";
-import { saveMobileServer } from "../config";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -23,7 +22,6 @@ afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks()
 
 describe("native launch screens", () => {
   it("shows a usable retry screen after a bridge failure and then opens the app", async () => {
-    saveMobileServer("https://mail.example.com");
     bridge.initialize.mockRejectedValueOnce(new Error("internal bridge details"));
     await act(async () => root.render(<NativeRoot><p>Mailbox ready</p></NativeRoot>));
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("Webmail could not start.");
@@ -33,9 +31,10 @@ describe("native launch screens", () => {
     expect(bridge.initialize).toHaveBeenCalledTimes(2);
   });
 
-  it("requires server selection before rendering account data", async () => {
+  it("opens the app on a clean install without a server form", async () => {
     await act(async () => root.render(<NativeRoot><p>Mailbox ready</p></NativeRoot>));
-    expect(host.textContent).not.toContain("Mailbox ready");
-    expect(host.querySelector('input[type="url"]')).not.toBeNull();
+    expect(host.textContent).toBe("Mailbox ready");
+    expect(host.querySelector('input[type="url"]')).toBeNull();
+    expect(bridge.config).not.toHaveBeenCalled();
   });
 });

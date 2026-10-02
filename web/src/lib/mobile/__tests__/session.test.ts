@@ -7,7 +7,7 @@ vi.mock("@/lib/notify/webpush", () => ({ unsubscribeThisDevice: async () => {} }
 vi.mock("@/lib/settingsSync", () => ({ flushSettingsPush: async () => {}, stopSettingsSync: () => {} }));
 import { useSession } from "@/store/session";
 import { CAP, client } from "@/jmap/client";
-import { allowNativeSession, blockNativeSession, nativeSessionBlocked, saveMobileServer } from "../config";
+import { allowNativeSession, blockNativeSession, nativeSessionBlocked } from "../config";
 import { stopIdleLogout } from "@/lib/idleLogout";
 import type { JmapSession } from "@/jmap/types";
 
@@ -21,7 +21,7 @@ const session = {
 beforeEach(() => {
   vi.stubEnv("VITE_MOBILE_BUILD", "true");
   vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
-  localStorage.clear(); allowNativeSession(); saveMobileServer("https://mail.example.com");
+  localStorage.clear(); allowNativeSession();
   client.session = null;
   useSession.setState({ status: "loading", session: null, accountId: null, error: null });
   network.api.mockReset().mockResolvedValue(session);

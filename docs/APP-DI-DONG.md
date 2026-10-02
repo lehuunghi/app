@@ -2,27 +2,27 @@
 
 ## 1. Cách hoạt động
 
-Giao diện React được build vào `mobile-dist` và đóng gói vào ứng dụng bằng Capacitor. Khi mở lần đầu, nhập địa chỉ website Webmail của bạn, ví dụ `https://webmail.example.com`. Nếu website được cài dưới một đường dẫn, dùng địa chỉ đầy đủ như `https://example.com/webmail`.
+Giao diện React được build vào `mobile-dist` và đóng gói vào ứng dụng bằng Capacitor. App luôn dùng `https://jmail.vn` và mở thẳng màn hình đăng nhập; không có ô nhập hoặc nút đổi máy chủ. Cấu hình máy chủ đã lưu trong các bản cũ bị bỏ qua. Khi nâng cấp từ máy chủ khác, app xóa dữ liệu tài khoản cục bộ và yêu cầu đăng nhập lại.
 
 Đây là địa chỉ của máy chủ Webmail Node.js, không phải địa chỉ trực tiếp của Stalwart. Các API được gọi bằng HTTP native và sử dụng cookie phiên đăng nhập của máy chủ. Tài khoản và dữ liệu thư vẫn nằm trên Stalwart; đọc thư hoặc đánh dấu đã đọc trên một thiết bị sẽ được các thiết bị khác đồng bộ lại.
 
-Chỉ nhận HTTPS với chứng chỉ hợp lệ. Địa chỉ có mật khẩu, query hoặc fragment bị từ chối. Không có mật khẩu mail hay `APP_SECRET` được nhúng vào ứng dụng. Không dùng `server.url` của Capacitor để tải toàn bộ website từ xa; cấu hình hiện tại dùng giao diện đã đóng gói.
+Máy chủ cố định dùng HTTPS với chứng chỉ hợp lệ. Không có mật khẩu mail hay `APP_SECRET` được nhúng vào ứng dụng. Không dùng `server.url` của Capacitor để tải toàn bộ website từ xa; cấu hình hiện tại dùng giao diện đã đóng gói.
 
 ## 2. Chuẩn bị máy chủ
 
 1. Có một máy chủ Webmail đang hoạt động, dùng cùng Stalwart với bản web.
-2. Có tên miền và chứng chỉ HTTPS hợp lệ, ví dụ `https://webmail.example.com`.
-3. Kiểm tra `https://webmail.example.com/api/health` có phản hồi và `/api/config` trả JSON có `appName`.
+2. Có tên miền và chứng chỉ HTTPS hợp lệ, ví dụ `https://jmail.vn`.
+3. Kiểm tra `https://jmail.vn/api/health` có phản hồi và `/api/config` trả JSON có `appName`.
 4. Nếu dùng reverse proxy, chuyển tiếp nguyên đường dẫn tới Node.js. Nếu chạy dưới `/webmail`, build và chạy máy chủ web với cùng `BASE_PATH=/webmail`.
 5. Giữ các bảo vệ CSRF và cookie của website. Ứng dụng gửi header giao thức hiện có và dùng HTTP native; không cần thêm CORS `*`.
 
-Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Đường dẫn của máy chủ từ xa được lấy từ địa chỉ nhập ở lần mở đầu. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
+Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Đường dẫn API được cố định vào `https://jmail.vn`. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
 
 Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nhập lâu hơn và lưu cài đặt, địa chỉ gần đây trên thiết bị. Nếu không chọn, app đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản cục bộ.
 
 Đăng xuất sẽ yêu cầu máy chủ kết thúc phiên và xóa cookie native cùng tệp chia sẻ tạm. App lưu một cờ đã đăng xuất trước khi gọi mạng, nên sẽ không tự khôi phục cookie cũ nếu mất mạng hoặc xóa cookie thất bại. Chỉ đăng nhập thành công mới gỡ cờ này. Phản hồi phiên đến chậm từ tài khoản cũ cũng bị bỏ qua. Cờ chỉ chứa trạng thái đăng xuất, không chứa mật khẩu hoặc nội dung thư. Máy chủ chỉ có thể thu hồi phiên khi nhận được yêu cầu; mất mạng không bảo đảm thu hồi phiên phía máy chủ.
 
-Đổi máy chủ từ màn hình đăng nhập cũng xóa dữ liệu tài khoản cũ trên thiết bị và yêu cầu đăng nhập lại. Nếu bridge native khởi động lỗi, app hiển thị thông báo tiếng Việt cùng nút **Thử lại**.
+Nếu bridge native khởi động lỗi, app hiển thị thông báo tiếng Việt cùng nút **Thử lại**.
 
 ## 3. Lấy mã nguồn và cài dependencies
 
@@ -159,8 +159,8 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 
 ## 8. Kiểm thử trên điện thoại trước phát hành
 
-1. Kết nối đúng địa chỉ HTTPS; thử địa chỉ sai và chứng chỉ không hợp lệ.
-2. Đăng nhập đúng/sai, đăng xuất, mở lại app và đổi máy chủ. Thử đăng xuất khi mất mạng rồi đóng/mở app: app phải yêu cầu đăng nhập lại dù cookie cũ còn trên thiết bị.
+1. App mở thẳng màn hình đăng nhập, không có ô nhập/nút đổi máy chủ; tất cả API dùng `https://jmail.vn`.
+2. Đăng nhập đúng/sai, đăng xuất, mở lại app và nâng cấp từ bản cũ đã lưu máy chủ khác. Thử đăng xuất khi mất mạng rồi đóng/mở app: app phải yêu cầu đăng nhập lại dù cookie cũ còn trên thiết bị.
 3. Đọc/gửi thư trên tài khoản thử nghiệm; kiểm tra trạng thái đã đọc trên web và điện thoại.
 4. Tải ảnh CID và ảnh bên ngoài theo chính sách cho phép; thử tắt tải ảnh.
 5. Chọn/tải/chia sẻ ảnh, PDF và tệp văn bản; thử tệp có tên tiếng Việt và tệp gần giới hạn upload. Đóng bảng chia sẻ mà không chọn nơi lưu: không được hiện thông báo tải thất bại.
@@ -169,7 +169,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.1 (build 2).
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.2 (build 3).
 
 ## 9. Nguồn tham khảo
 

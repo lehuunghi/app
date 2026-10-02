@@ -23,3 +23,18 @@ jobs:
       - run: npm run i18n:check
       - run: npm run mobile:sync
       - run: npm run mobile:check
+  live-server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check the live jmail deployment
+        run: node scripts/mobile-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jmail-connection-check
+          path: mobile-smoke-report.json
+          if-no-files-found: error
