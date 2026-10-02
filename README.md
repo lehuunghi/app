@@ -8,8 +8,10 @@
 - Kiểm tra thay đổi JMAP mỗi 30 giây khi app ở phía trước, tạm dừng khi app ở nền và kiểm tra lại khi quay về.
 - Chọn tệp đính kèm bằng bộ chọn tệp của thiết bị; tải/lưu/chia sẻ bằng bảng chia sẻ native.
 - Có sẵn dự án Android và iOS, biểu tượng Webmail riêng và quy trình build bản thử nghiệm.
+- Đăng xuất chặn tự khôi phục phiên cũ kể cả khi mất mạng; chỉ đăng nhập thành công mới mở lại phiên.
+- Có nút thử lại khi khởi động lỗi và khoảng trống cho vùng tai thỏ, thanh trạng thái và thanh điều hướng.
 
-**Trạng thái:** mã nguồn và cấu hình native đã được chuẩn bị. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+**Trạng thái:** phiên bản native 1.0.1 (build 2). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
 
 ## Chuẩn bị và mở dự án
 

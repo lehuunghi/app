@@ -69,7 +69,9 @@ export function resetShareSupport(): void {
 export async function shareText(data: { title?: string; text?: string; url?: string }): Promise<ShareOutcome> {
   if (isNativeApp()) {
     const { Share } = await import("@capacitor/share");
-    try { await Share.share(data); return "shared"; } catch { return "dismissed"; }
+    const { isNativeShareDismissal } = await import("./mobile/files");
+    try { await Share.share(data); return "shared"; }
+    catch (error) { if (isNativeShareDismissal(error)) return "dismissed"; throw error; }
   }
   if (!canShare()) return "unsupported";
   return await run(data);
@@ -82,8 +84,7 @@ export async function shareText(data: { title?: string; text?: string; url?: str
 export async function shareFile(file: File, extra: { title?: string; text?: string } = {}): Promise<ShareOutcome> {
   if (isNativeApp()) {
     const { shareNativeFile } = await import("./mobile/files");
-    await shareNativeFile(file, file.name, extra);
-    return "shared";
+    return await shareNativeFile(file, file.name, extra);
   }
   if (!canShare() || !navigator.canShare?.({ files: [file] })) return "unsupported";
   return await run({ ...extra, files: [file] });

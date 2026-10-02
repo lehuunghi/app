@@ -10,6 +10,7 @@ import { unsubscribeThisDevice } from "@/lib/notify/webpush";
 import { clearAllData, clearSignedInData, setDeviceTrusted } from "@/lib/storage";
 import { startIdleLogout, stopIdleLogout } from "@/lib/idleLogout";
 import { clearNativeSession } from "@/lib/mobile/runtime";
+import { nativeSessionBlocked, allowNativeSession, blockNativeSession } from "@/lib/mobile/config";
 
 export type AuthStatus = "loading" | "anonymous" | "authenticated";
 
@@ -34,6 +35,7 @@ interface SessionState {
 }
 
 let refreshing: Promise<void> | null = null;
+let sessionGeneration = 0;
 
 export const useSession = create<SessionState>((set, get) => ({
   status: "loading",
@@ -44,25 +46,39 @@ export const useSession = create<SessionState>((set, get) => ({
   pushState: "disconnected",
 
   async bootstrap() {
+    if (nativeSessionBlocked()) {
+      clearSignedInData();
+      client.session = null;
+      set({ status: "anonymous", session: null, accountId: null, error: null });
+      return;
+    }
+    const generation = sessionGeneration;
     try {
       const s = await apiFetch<JmapSession>("/api/auth/session");
+      if (generation !== sessionGeneration || nativeSessionBlocked()) return;
       applySession(s, set);
     } catch (err) {
+      if (generation !== sessionGeneration || nativeSessionBlocked()) return;
       if (err instanceof ApiError && err.status === 401) set({ status: "anonymous", session: null, accountId: null });
       else set({ status: "anonymous", error: (err as Error).message });
     }
   },
 
   async login(username, password, totp, remember) {
+    const generation = ++sessionGeneration;
     set({ error: null });
     const s = await apiFetch<JmapSession>("/api/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password, totp: totp || undefined, remember }),
     });
+    if (generation !== sessionGeneration) return;
+    allowNativeSession();
     applySession(s, set);
   },
 
   async logout() {
+    sessionGeneration++;
+    blockNativeSession();
     push.stop();
     setServerLocale(null);
     // Anything still sitting in the debounce is written while the session can
@@ -105,10 +121,13 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   refresh() {
+    if (nativeSessionBlocked()) return Promise.resolve();
+    const generation = sessionGeneration;
     // Callers arriving while a refresh is on its way share it.
     refreshing ??= (async () => {
       try {
         const s = await apiFetch<JmapSession>("/api/auth/session?refresh=1");
+        if (generation !== sessionGeneration || nativeSessionBlocked()) return;
         client.session = s;
         setServerLocale(s.ihasmail?.userLocale);
         set({ session: s });

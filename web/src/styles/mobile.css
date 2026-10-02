@@ -1,4 +1,27 @@
-:root[data-native-app="true"] { overscroll-behavior: none; }
+:root[data-native-app="true"] {
+  overscroll-behavior: none;
+  --native-safe-top: env(safe-area-inset-top, 0px);
+  --native-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --native-safe-left: env(safe-area-inset-left, 0px);
+  --native-safe-right: env(safe-area-inset-right, 0px);
+}
 :root[data-native-app="true"] body { overscroll-behavior: none; }
 :root[data-native-app="true"] .login-page { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
 :root[data-native-app="true"] input, :root[data-native-app="true"] select, :root[data-native-app="true"] textarea { font-size: max(16px, 1em); }
+
+/* Keep controls below the status bar while the background fills the viewport. */
+:root[data-native-app="true"] .app { grid-template-rows: calc(var(--topbar-h) + var(--native-safe-top)) 1fr; }
+:root[data-native-app="true"] .topbar { padding-top: var(--native-safe-top); }
+:root[data-native-app="true"] .dialog-backdrop {
+  padding: calc(16px + var(--native-safe-top)) calc(16px + var(--native-safe-right)) calc(16px + var(--native-safe-bottom)) calc(16px + var(--native-safe-left));
+}
+:root[data-native-app="true"] .dialog { max-height: calc(100dvh - 32px - var(--native-safe-top) - var(--native-safe-bottom)); }
+@media (max-width: 768px) {
+  :root[data-native-app="true"] .drawer-head { height: calc(var(--topbar-h) + var(--native-safe-top)); padding-top: var(--native-safe-top); flex-shrink: 0; }
+  :root[data-native-app="true"] .composer:not(.minimized) {
+    padding: var(--native-safe-top) var(--native-safe-right) var(--native-safe-bottom) var(--native-safe-left);
+  }
+  :root[data-native-app="true"] .composer.minimized { padding-bottom: var(--native-safe-bottom); }
+  :root[data-native-app="true"] .composer.maximized { inset: 0; }
+  :root[data-native-app="true"] .toast-host { bottom: calc(72px + var(--native-safe-bottom)); }
+}

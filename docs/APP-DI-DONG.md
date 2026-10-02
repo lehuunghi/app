@@ -18,7 +18,11 @@ Chỉ nhận HTTPS với chứng chỉ hợp lệ. Địa chỉ có mật khẩu
 
 Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Đường dẫn của máy chủ từ xa được lấy từ địa chỉ nhập ở lần mở đầu. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
 
-Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nhập lâu hơn. Nếu không chọn, quy tắc đăng xuất khi không hoạt động của bản web vẫn áp dụng. Đăng xuất sẽ yêu cầu máy chủ kết thúc phiên và xóa cookie native cùng tệp chia sẻ tạm. Có thể đổi máy chủ từ màn hình đăng nhập; thao tác đó cũng xóa dữ liệu đã lưu của tài khoản cũ trên thiết bị.
+Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nhập lâu hơn và lưu cài đặt, địa chỉ gần đây trên thiết bị. Nếu không chọn, app đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản cục bộ.
+
+Đăng xuất sẽ yêu cầu máy chủ kết thúc phiên và xóa cookie native cùng tệp chia sẻ tạm. App lưu một cờ đã đăng xuất trước khi gọi mạng, nên sẽ không tự khôi phục cookie cũ nếu mất mạng hoặc xóa cookie thất bại. Chỉ đăng nhập thành công mới gỡ cờ này. Phản hồi phiên đến chậm từ tài khoản cũ cũng bị bỏ qua. Cờ chỉ chứa trạng thái đăng xuất, không chứa mật khẩu hoặc nội dung thư. Máy chủ chỉ có thể thu hồi phiên khi nhận được yêu cầu; mất mạng không bảo đảm thu hồi phiên phía máy chủ.
+
+Đổi máy chủ từ màn hình đăng nhập cũng xóa dữ liệu tài khoản cũ trên thiết bị và yêu cầu đăng nhập lại. Nếu bridge native khởi động lỗi, app hiển thị thông báo tiếng Việt cùng nút **Thử lại**.
 
 ## 3. Lấy mã nguồn và cài dependencies
 
@@ -138,6 +142,10 @@ Workflow này có sẵn để chạy thủ công. Chỉ xem artifact có thực 
 | Đồng bộ JMAP khi app mở | Mỗi 30 giây; dừng khi ở nền, kiểm tra lại khi quay về |
 | Chọn tệp đính kèm | Dùng bộ chọn tệp của WebView/thiết bị |
 | Lưu và chia sẻ tệp | Dùng Filesystem cache và Share native |
+| Đóng bảng chia sẻ | Không báo lỗi tải tệp; xóa bản tạm của lần chia sẻ bị hủy |
+| Đăng xuất khi mất mạng | Chặn khôi phục phiên cũ trên app; vẫn cần mạng để thu hồi phiên phía máy chủ |
+| Khởi động lỗi | Màn hình thông báo và nút thử lại bằng tiếng Việt |
+| Vùng tai thỏ/thanh điều hướng | CSS safe area cho thanh trên, hộp thoại và khung soạn thư |
 | Xem ảnh đính kèm, ảnh CID và ảnh qua privacy proxy | Đã thêm tải qua HTTP native |
 | PDF | Mở/lưu qua bảng chia sẻ native |
 | Thông báo khi app đã đóng | Chưa có FCM/APNs và backend đăng ký thiết bị |
@@ -152,16 +160,16 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 ## 8. Kiểm thử trên điện thoại trước phát hành
 
 1. Kết nối đúng địa chỉ HTTPS; thử địa chỉ sai và chứng chỉ không hợp lệ.
-2. Đăng nhập đúng/sai, đăng xuất, mở lại app và đổi máy chủ.
+2. Đăng nhập đúng/sai, đăng xuất, mở lại app và đổi máy chủ. Thử đăng xuất khi mất mạng rồi đóng/mở app: app phải yêu cầu đăng nhập lại dù cookie cũ còn trên thiết bị.
 3. Đọc/gửi thư trên tài khoản thử nghiệm; kiểm tra trạng thái đã đọc trên web và điện thoại.
 4. Tải ảnh CID và ảnh bên ngoài theo chính sách cho phép; thử tắt tải ảnh.
-5. Chọn/tải/chia sẻ ảnh, PDF và tệp văn bản; thử tệp có tên tiếng Việt và tệp gần giới hạn upload.
+5. Chọn/tải/chia sẻ ảnh, PDF và tệp văn bản; thử tệp có tên tiếng Việt và tệp gần giới hạn upload. Đóng bảng chia sẻ mà không chọn nơi lưu: không được hiện thông báo tải thất bại.
 6. Đưa app về nền rồi mở lại; kiểm tra thư mới và mất kết nối mạng.
 7. Trên Android, thử nút Back khi đang soạn thư chưa lưu.
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. Môi trường chuẩn bị mã nguồn không có bộ công cụ Android hoạt động hoặc Xcode để biên dịch APK/IPA.
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.1 (build 2).
 
 ## 9. Nguồn tham khảo
 

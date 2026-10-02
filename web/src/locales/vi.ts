@@ -4,6 +4,11 @@ import type { Catalog } from "@/lib/i18n";
 // Vietnamese uses only the CLDR "other" plural category.
 export const catalog: Catalog = {
   strings: {
+    "Webmail could not start.": "Không thể khởi động Webmail.",
+    "Close and reopen the app, or try again.": "Hãy đóng rồi mở lại ứng dụng, hoặc thử lại.",
+    "Try again": "Thử lại",
+    "Stay signed in, and keep settings and recent addresses on this device.": "Duy trì đăng nhập và lưu cài đặt cùng các địa chỉ gần đây trên thiết bị này.",
+    "Sign out after 5 minutes of inactivity and clear local account data. Leave this unticked on a shared device.": "Đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản trên thiết bị. Không chọn mục này nếu dùng chung thiết bị.",
     "Connect to your Webmail server": "Kết nối với máy chủ Webmail của bạn",
     "Webmail server address": "Địa chỉ máy chủ Webmail",
     "Use the same website address as on your computer. Your account is entered on the next screen.": "Dùng cùng địa chỉ website Webmail như trên máy tính. Bạn sẽ nhập tài khoản ở màn hình tiếp theo.",

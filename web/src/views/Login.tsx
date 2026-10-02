@@ -11,7 +11,7 @@ import { UI_LANGUAGES } from "@/lib/languages";
 import { useSettings } from "@/store/settings";
 import { isNativeApp, mobileServerUrl, clearMobileServer } from "@/lib/mobile/config";
 import { clearNativeSession } from "@/lib/mobile/runtime";
-import { clearAllData } from "@/lib/storage";
+import { clearAllData, setDeviceTrusted } from "@/lib/storage";
 
 export function LoginPage() {
   const uiLanguage = useSettings((s) => s.settings.uiLanguage);
@@ -104,9 +104,13 @@ export function LoginPage() {
           <span>{t("This is my own device")}</span>
         </label>
         <p className="hint" style={{ marginBottom: 12 }}>
-          {trustDevice
-            ? t("Stay signed in, and keep settings and recent addresses on this computer.")
-            : t("Signed out after 5 minutes of inactivity, and nothing is kept on this computer. Leave this unticked on a shared or public one.")}
+          {isNativeApp()
+            ? trustDevice
+              ? t("Stay signed in, and keep settings and recent addresses on this device.")
+              : t("Sign out after 5 minutes of inactivity and clear local account data. Leave this unticked on a shared device.")
+            : trustDevice
+              ? t("Stay signed in, and keep settings and recent addresses on this computer.")
+              : t("Signed out after 5 minutes of inactivity, and nothing is kept on this computer. Leave this unticked on a shared or public one.")}
         </p>
         <button className="btn btn-primary btn-lg btn-block" type="submit" disabled={busy}>
           {busy ? <span className="spinner" style={{ borderTopColor: "#fff" }} /> : <LogIn size={18} />}
@@ -132,7 +136,10 @@ export function LoginPage() {
         {isNativeApp() && <div className="hint mt-16">
           <p className="truncate">{mobileServerUrl()}</p>
           <button type="button" className="btn btn-ghost" disabled={busy} onClick={async () => {
-            await clearNativeSession(); clearAllData(); clearMobileServer(); window.location.reload();
+            setBusy(true);
+            try { await clearNativeSession(); } catch { /* the sign-out barrier still requires a new login */ }
+            setDeviceTrusted(false);
+            clearAllData(); clearMobileServer(); window.location.reload();
           }}>{t("Change Webmail server")}</button>
         </div>}
       </form>
