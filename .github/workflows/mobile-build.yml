@@ -112,7 +112,7 @@ jobs:
       - run: npm run mobile:build
       - run: npm run build -w server
       - run: npm install --prefix .ui-tools --no-save --package-lock=false playwright
-      - run: node .ui-tools/node_modules/playwright/cli.js install --with-deps chromium
+      - run: google-chrome --version
       - run: node scripts/ui-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()

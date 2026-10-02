@@ -40,7 +40,7 @@ try {
   await ready("http://127.0.0.1:8788/.well-known/jmap");
   start(["server/dist/index.js"], { HOST: "127.0.0.1", PORT: "8080", STALWART_URL: "http://127.0.0.1:8788", APP_SECRET: randomBytes(32).toString("hex"), ADMINISTRATION: "0", BASE_PATH: "", APP_NAME: "Webmail" });
   await ready("http://127.0.0.1:8080/api/health");
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ channel: "chrome", headless: true });
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
     const context = await browser.newContext({ viewport });
     const page = active = await context.newPage();
