@@ -83,8 +83,8 @@ describe("reordering folders in the tree", () => {
   });
   afterEach(() => { act(() => root.unmount()); host.remove(); });
 
-  it("lists special folders under Inbox before the rest, until something is dragged", () => {
-    expect(rows()).toEqual(["Inbox", "Drafts", "Sent", "Deleted Items", "Alpha", "Zeta"]);
+  it("uses the Gmail-style default order until something is dragged", () => {
+    expect(rows()).toEqual(["Inbox", "Sent", "Drafts", "Deleted Items", "Alpha", "Zeta"]);
   });
 
   it("puts a folder above the row when it's dropped on the row's top edge", () => {
@@ -92,6 +92,15 @@ describe("reordering folders in the tree", () => {
     expect(arrange).toHaveBeenCalledWith({
       zeta: { sortOrder: 20 }, drafts: { sortOrder: 30 }, sent: { sortOrder: 40 }, trash: { sortOrder: 50 }, alpha: { sortOrder: 60 }, inbox: { sortOrder: 10 },
     });
+  });
+
+  it("renders the saved drag order instead of regrouping special folders", () => {
+    drag("Zeta", "Drafts", 0.1);
+    const updates = arrange.mock.calls[0]![0];
+    act(() => useMail.setState({ mailboxes: Object.fromEntries(Object.entries(MAILBOXES).map(([id, mailbox]) => [id, { ...mailbox, ...updates[id] }])) }));
+    expect(rows()).toEqual(["Inbox", "Zeta", "Drafts", "Sent", "Deleted Items", "Alpha"]);
+    expect(document.querySelector('a[href*="is%3Astarred"]')).not.toBeNull();
+    expect(document.querySelector('a[href*="in%3Aall"]')).not.toBeNull();
   });
 
   it("nests a folder dropped on the middle of an ordinary folder, as before", () => {

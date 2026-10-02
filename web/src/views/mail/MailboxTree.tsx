@@ -281,12 +281,15 @@ export function MailboxTree() {
           </>
         )}
         {drill ? renderRows(childrenOf(drill.id).map((m) => ({ m, depth: 0, hasChildren: childrenOf(m.id).length > 0, open: false, hiddenUnread: subtreeUnread(m.id), childUnread: subtreeUnread(m.id) }))) : <>
-          {renderRows(primaryTreeRows)}
+          {/* Respect a saved JMAP folder order instead of regrouping a user's drag. */}
+          {baseRows.some(({m}) => m.sortOrder !== 0)
+            ? renderRows(baseRows.filter(({m}) => m.role !== "all" && m.role !== "flagged"))
+            : renderRows(primaryTreeRows)}
           <div>
             <Link href="/search?q=is%3Astarred" className={`nav-item ${location === "/search" && new URLSearchParams(search).get("q") === "is:starred" ? "active" : ""}`}><Star size={20} /><span className="nav-label">{t("Starred")}</span></Link>
-            {renderRows(secondaryRows.filter(({m}) => m.role === "drafts"))}
+            {!baseRows.some(({m}) => m.sortOrder !== 0) && renderRows(secondaryRows.filter(({m}) => m.role === "drafts"))}
             <Link href="/search?q=in%3Aall" className={`nav-item ${location === "/search" && new URLSearchParams(search).get("q") === "in:all" ? "active" : ""}`}><Mail size={20} /><span className="nav-label">{t("All mail")}</span></Link>
-            {renderRows(secondaryRows.filter(({m}) => m.role !== "drafts"))}
+            {!baseRows.some(({m}) => m.sortOrder !== 0) && renderRows(secondaryRows.filter(({m}) => m.role !== "drafts"))}
             <Link href="/settings/labels" className="nav-item"><Tag size={20} /><span className="nav-label">{t("Manage labels")}</span></Link>
           </div>
         </>}        {/* Labels are a flat list that belongs to the mailbox, not to whichever

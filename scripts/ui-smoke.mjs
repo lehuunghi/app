@@ -47,8 +47,9 @@ try {
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const prefix = viewport.width < 769 ? "mobile" : "desktop";
-    await page.goto("http://127.0.0.1:8080", { waitUntil: "networkidle" });
+    await page.goto("http://127.0.0.1:8080", { waitUntil: "domcontentloaded" });
     await visible(page, ".gmail-login");
+    console.log("UI " + prefix + ": sign-in loaded");
     if (prefix === "mobile") await page.evaluate(() => { document.documentElement.dataset.nativeApp = "true"; });
     await noOverflow(page);
     for (const selector of ["#u", "#p", "button[type=submit]", "#login-language"]) await fits(page, selector);
@@ -58,6 +59,7 @@ try {
     await page.locator("button[type=submit]").click();
     await visible(page, ".workspace-app");
     await visible(page, ".msg-row");
+    console.log("UI " + prefix + ": demo inbox loaded");
     if (prefix === "mobile") await page.locator(".topbar > button").first().click();
     await visible(page, '.mail-navigation a[href*="is%3Astarred"]');
     await visible(page, '.mail-navigation a[href*="in%3Aall"]');
@@ -81,6 +83,7 @@ try {
   }
 } catch (error) {
   report.error = error.message;
+  try { report.body = (await active?.locator("body").innerText())?.slice(0,2000); writeFileSync("ui-smoke/failure.html", await active.content()); } catch { /* preserve error */ }
   process.exitCode = 1;
   try { await active?.screenshot({ path: "ui-smoke/failure.png", fullPage: true }); } catch { /* keep failure */ }
 } finally {
