@@ -1,0 +1,4 @@
+:root[data-native-app="true"] { overscroll-behavior: none; }
+:root[data-native-app="true"] body { overscroll-behavior: none; }
+:root[data-native-app="true"] .login-page { padding-top: max(24px, env(safe-area-inset-top)); padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+:root[data-native-app="true"] input, :root[data-native-app="true"] select, :root[data-native-app="true"] textarea { font-size: max(16px, 1em); }

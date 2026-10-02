@@ -1,0 +1,30 @@
+{
+  "name": "@webmail-app/server",
+  "version": "2.16.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --import tsx --test src/*.test.ts src/**/*.test.ts",
+    "mock": "tsx src/mock/index.ts",
+    "mock:no-future-release": "MOCK_NO_FUTURE_RELEASE=1 tsx src/mock/index.ts",
+    "mock:no-keyword-sort": "MOCK_NO_KEYWORD_SORT=1 tsx src/mock/index.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.1.1",
+    "hono": "^4.13.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "tsx": "^4.23.13",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}

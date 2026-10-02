@@ -1,0 +1,1241 @@
+import { Hono } from "hono";
+import type { Context, MiddlewareHandler } from "hono";
+import { getCookie, setCookie, deleteCookie } from "hono/cookie";
+import { bodyLimit } from "hono/body-limit";
+import { compress } from "hono/compress";
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
+import { RESPONSE_ALREADY_SENT } from "@hono/node-server/utils/response";
+import { attach as pushAttach, attachRelay as pushAttachRelay, prepare as pushPrepare, receive as pushReceive, pushStatus } from "./push.js";
+import { getConnInfo } from "@hono/node-server/conninfo";
+import { config } from "./config.js";
+import { fetchPermissions } from "./permissionSchema.js";
+import { administrationAllowed, gateAdministration, grantsAdministration } from "./adminGate.js";
+import { SessionStore, accountKey, type SessionBackend, type LiveSession } from "./sessions.js";
+import { RateLimiter } from "./ratelimit.js";
+import { rateLimitKey, resolveClientIp } from "./clientip.js";
+import { safeEqual } from "./crypto.js";
+import {
+  type AccountInfo,
+  UpstreamError,
+  absoluteUpstream,
+  expandTemplate,
+  fetchUpstreamSession,
+  hasStalwartRegistry,
+  forgetUpstreamSession,
+  getAccountInfo,
+  getUpstreamSession,
+  upstreamFor,
+  adminUrlFor,
+  localizeSession,
+} from "./upstream.js";
+import {
+  AccountError,
+  assertEnrollmentCode,
+  beginOtpEnrollment,
+  changePassword,
+  createAppPassword,
+  disableOtp,
+  enableOtp,
+  getState,
+  revokeAppPassword,
+} from "./account.js";
+import { imageProxyHandler } from "./imageproxy.js";
+import { icsProxyHandler } from "./icsproxy.js";
+import { staticHandler } from "./static.js";
+
+type Env = { Variables: { session: LiveSession } };
+
+export const sessions: SessionBackend = new SessionStore(config.sessionFile);
+const loginLimiter = new RateLimiter(config.loginRateLimit, 15 * 60_000);
+/*
+ * The backstop that is never refunded.
+ *
+ * `loginLimiter` guards password guessing and gives its attempts back when the
+ * upstream never judged the password (#239) -- otherwise retrying through an
+ * outage locks somebody out until after it has ended. But "not counted" cannot
+ * mean "unlimited": each attempt still costs ihasmail an outbound connection
+ * that may sit there until `UPSTREAM_TIMEOUT`, so a flood during an outage is
+ * the one moment the endpoint is cheapest to abuse.
+ *
+ * Hence a second ceiling, per address, twenty times looser and refunded never.
+ * A person retrying an outage will not come near it; something hammering will.
+ */
+const loginFloodLimiter = new RateLimiter(config.loginRateLimit * 20, 15 * 60_000);
+/**
+ * Credential changes verify the current password upstream, and Stalwart's
+ * fail2ban counts those failures against the *caller's* IP — which for a proxy
+ * is shared by every user. Keep our own lid on it so one person guessing
+ * cannot get the whole deployment banned.
+ */
+const accountLimiter = new RateLimiter(10, 15 * 60_000);
+const apiLimiter = new RateLimiter(config.apiRateLimit, 60_000);
+
+/** Per-session budget on the data path. See config.apiRateLimit. */
+const apiRateLimited: MiddlewareHandler<Env> = async (c, next) => {
+  if (config.apiRateLimit > 0) {
+    const session = c.get("session");
+    if (session && !apiLimiter.check(session.id)) {
+      c.header("Retry-After", String(apiLimiter.retryAfterSeconds(session.id)));
+      return c.json({ error: "rate_limited" }, 429);
+    }
+  }
+  await next();
+};
+
+const HOP_BY_HOP = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+  "content-encoding",
+  "content-length",
+]);
+
+export function clientIp(c: Context): string {
+  let peer = "unknown";
+  try {
+    peer = getConnInfo(c).remote.address ?? "unknown";
+  } catch {
+    /* no socket information available */
+  }
+  return resolveClientIp(peer, { forwardedFor: c.req.header("x-forwarded-for"), realIp: c.req.header("x-real-ip") }, config);
+}
+
+function isSecureRequest(c: Context): boolean {
+  if (config.secureCookies === "1" || config.secureCookies === "true") return true;
+  if (config.secureCookies === "0" || config.secureCookies === "false") return false;
+  if (config.trustProxy) {
+    const proto = c.req.header("x-forwarded-proto");
+    if (proto) return proto.split(",")[0]!.trim() === "https";
+  }
+  return new URL(c.req.url).protocol === "https:";
+}
+
+/** Security headers for every response. */
+const securityHeaders: MiddlewareHandler = async (c, next) => {
+  await next();
+  const h = c.res.headers;
+  h.set("X-Content-Type-Options", "nosniff");
+  /* A route that must be framable says so; everything else is DENY. The blob
+     route is the only one, and only for PDFs -- see the note there. */
+  if (!h.has("X-Frame-Options")) h.set("X-Frame-Options", "DENY");
+  h.set("Referrer-Policy", "no-referrer");
+  h.set("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=()");
+  h.set("Cross-Origin-Opener-Policy", "same-origin");
+  if (!h.has("Cache-Control")) h.set("Cache-Control", "no-store");
+  if (isSecureRequest(c)) h.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+};
+
+/** CSRF: require our custom header on all API calls; reject cross-site fetches. */
+/**
+ * Routes that forward somebody else's bytes rather than producing our own.
+ *
+ * Compression is right for the app shell, the bundle and our JSON; it is not
+ * worth the risk on the proxy paths. Those carry a content-length copied from
+ * upstream under the rules in `forwardedContentLength`, and issue #76 was a
+ * silent truncation caused by exactly that header disagreeing with the body.
+ * Re-encoding them would be safe in principle -- the length is dropped and the
+ * response goes out chunked -- but the payloads are attachments, images and
+ * calendar data that are already compressed or too small to matter, so there
+ * is nothing to win and a scar to respect.
+ *
+ * `/api/events` needs no entry here: Hono skips `text/event-stream` by content
+ * type. It is listed anyway, because a future change to that route's type
+ * should not quietly start buffering the push stream.
+ */
+const UNCOMPRESSED_ROUTES = [
+  "/api/blob/",
+  "/api/image",
+  "/api/ics",
+  "/api/upload/",
+  "/api/events",
+  /*
+   * The liveness probe, which is small enough that gzip makes it bigger: 53
+   * bytes becomes 73. Hono's size threshold cannot catch this on its own,
+   * because it only applies when the response carries a content-length and
+   * `c.json()` does not set one. Every other JSON route is left compressed --
+   * a JMAP response can run to hundreds of kilobytes and its length is just as
+   * unknown -- so this is the one place worth naming.
+   */
+  "/api/health",
+];
+
+/**
+ * gzip for what we generate.
+ *
+ * The bundle ships uncompressed otherwise: 915 KB on the wire where 307 KB
+ * would do, on every first load. `Caddyfile.example` and
+ * `nginx.example.conf` both compress at the proxy, but that only helps the
+ * deployments that use them, and the default should not depend on reading the
+ * examples.
+ *
+ * Hono's middleware declines anything already carrying `Content-Encoding` or
+ * `Transfer-Encoding`, so a proxy compressing in front of us wins and we do
+ * not double-encode.
+ */
+function compressResponses(basePath: string): MiddlewareHandler {
+  const inner = compress({ threshold: 1024 });
+  const skip = UNCOMPRESSED_ROUTES.map((r) => `${basePath}${r}`);
+  if (!config.compressJmap) skip.push(`${basePath}/api/jmap`);
+  const offersEncoding = /\b(gzip|deflate)\b/i;
+  return async (c, next) => {
+    /*
+     * A client that did not ask for an encoding must not pay for one. Hono's
+     * middleware still inspects and re-labels every compressible response it
+     * declines -- setting Vary forces a streamed passthrough to be rebuilt off
+     * its fast path -- and that was measured at 1.2 ms per JMAP call, on a
+     * 1.9 ms operation, for a request that never sent Accept-Encoding.
+     */
+    if (!offersEncoding.test(c.req.header("accept-encoding") ?? "")) return next();
+    const path = new URL(c.req.url).pathname;
+    if (skip.some((prefix) => path.startsWith(prefix))) return next();
+    return inner(c, next);
+  };
+}
+
+const csrfGuard: MiddlewareHandler = async (c, next) => {
+  const site = c.req.header("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") {
+    return c.json({ error: "cross_site_request" }, 403);
+  }
+  if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+    if (c.req.header("x-requested-with") !== "ihasmail") {
+      return c.json({ error: "missing_csrf_header" }, 403);
+    }
+  }
+  await next();
+};
+
+/**
+ * The largest body an API route that reads JSON will take.
+ *
+ * Hono reads a JSON body whole, and before this nothing bounded it: a few
+ * unauthenticated sign-in attempts carrying hundreds of megabytes each could
+ * run the process out of memory, and a restart signs everybody out. What
+ * these routes actually receive is a username and password, or a code.
+ *
+ * JMAP and uploads carry real payloads and bound themselves as they stream;
+ * the push callback has its own limit ahead of this one.
+ */
+const MAX_SMALL_BODY = 64 * 1024;
+const LARGE_BODY_ROUTE = /\/api\/(jmap$|upload\/)/;
+const limitSmallBody = bodyLimit({ maxSize: MAX_SMALL_BODY, onError: (c) => c.json({ error: "too_large" }, 413) });
+const smallBodies: MiddlewareHandler = (c, next) => (LARGE_BODY_ROUTE.test(c.req.path) ? next() : limitSmallBody(c, next));
+
+const requireSession: MiddlewareHandler<Env> = async (c, next) => {
+  const cookie = getCookie(c, config.cookieName);
+  const session = sessions.resolve(cookie);
+  if (!session) {
+    return c.json({ error: "unauthenticated" }, 401);
+  }
+  c.set("session", session);
+  await next();
+};
+
+/**
+ * Scope the session cookie to the mount, not the whole host.
+ *
+ * Under a prefix the browser is talking to a hostname that other applications
+ * share, and a cookie at `/` would be sent to every one of them. Path scoping
+ * is not a security boundary -- anything on the origin can reach the cookie
+ * jar -- but it keeps the credential out of requests that have no business
+ * carrying it, and it lets two ihasmail instances live at `/mail` and
+ * `/mail2` on one host without signing each other out, which a shared cookie
+ * name at `/` would do.
+ *
+ * `/` for the root case: an empty Path is not the same thing and browsers
+ * would fall back to the directory of the request that set it.
+ */
+const cookiePath = config.basePath || "/";
+
+function setSessionCookie(c: Context, value: string, remember: boolean) {
+  setCookie(c, config.cookieName, value, {
+    httpOnly: true,
+    sameSite: "Lax",
+    secure: isSecureRequest(c),
+    path: cookiePath,
+    ...(remember ? { maxAge: config.sessionRememberTtl } : {}),
+  });
+}
+
+function upstreamFailure(c: Context, err: unknown) {
+  if (err instanceof UpstreamError) {
+    return c.json({ error: err.status === 401 ? "invalid_credentials" : "upstream_error", message: err.message }, err.status as 401 | 502);
+  }
+  const name = (err as Error)?.name ?? "";
+  if (name === "TimeoutError" || name === "AbortError") {
+    return c.json({ error: "upstream_timeout", message: "The mail server did not respond in time. This is not a problem with your password." }, 504);
+  }
+  console.error("[ihasmail] upstream failure:", err);
+  return c.json({ error: "upstream_error", message: "Could not reach the mail server. This is not a problem with your password." }, 502);
+}
+
+/**
+ * `basePath` is a parameter rather than read straight from the config so the
+ * tests can mount the same app twice, at the root and under a prefix, without
+ * re-importing the module to change one environment variable.
+ */
+export function createApp(basePath = config.basePath): Hono<Env> {
+  const app = new Hono<Env>();
+  app.use("*", securityHeaders);
+  app.use("*", compressResponses(basePath));
+
+  const api = new Hono<Env>();
+  api.use("*", csrfGuard);
+  api.use("*", smallBodies);
+
+  api.get("/health", (c) => c.json({ ok: true, name: config.appName, version: config.version, push: pushStatus() }));
+
+  /*
+   * Stalwart's push delivery. Authenticated by the token in the path -- 32
+   * random bytes, one per account, known only to us and to Stalwart -- and by
+   * nothing else, since Stalwart carries no credential when it POSTs. An
+   * unknown token is a 404 that looks like any other. See push.ts.
+   */
+  app.post(`${basePath}/api/push/:token`, async (c) => {
+    if (!(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) return c.body(null, 415);
+    const len = Number(c.req.header("content-length") ?? "0");
+    if (!len || len > 64 * 1024) return c.body(null, 413);
+    let body: unknown;
+    try { body = await c.req.json(); } catch { return c.body(null, 400); }
+    return c.body(null, (await pushReceive(c.req.param("token"), body)) as 200 | 400 | 404 | 500);
+  });
+
+
+  api.get("/config", (c) =>
+    c.json({
+      appName: config.appName,
+      sourceUrl: config.sourceUrl,
+      imageProxy: config.imageProxy,
+      maxUploadBytes: config.maxUploadBytes,
+      /* Sent before sign-in like the rest of this: it says what the
+         installation has decided, not anything about who is asking. */
+      settingsPolicy: config.settingsPolicy,
+    }),
+  );
+
+  // ---------- Auth ----------
+  api.post("/auth/login", async (c) => {
+    const ip = clientIp(c);
+    // What the limits count under: the address, or its /64 for IPv6.
+    const rateIp = rateLimitKey(ip);
+    // The flood ceiling needs nothing from the body, so it goes before reading one.
+    if (!loginFloodLimiter.check(rateIp)) {
+      c.header("Retry-After", String(loginFloodLimiter.retryAfterSeconds(rateIp)));
+      return c.json({ error: "rate_limited", message: "Too many login attempts. Please wait and try again." }, 429);
+    }
+    let body: { username?: string; password?: string; totp?: string; remember?: boolean };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "bad_request" }, 400);
+    }
+    const username = (body.username ?? "").trim();
+    const password = body.password ?? "";
+    const totp = (body.totp ?? "").trim();
+    if (!username || !password) return c.json({ error: "missing_credentials" }, 400);
+    if (username.length > 320 || password.length > 1024) return c.json({ error: "bad_request" }, 400);
+
+    /*
+     * Three checks, answering different questions.
+     *
+     * `limitKey` is this username from this address, and `rateIp` is any username
+     * from it -- both guard guessing, and both are given back when the upstream
+     * never got as far as judging the password. Refunding only the first would
+     * not fix #239: ten retries through an outage would still spend the address
+     * budget, and behind one office NAT that budget belongs to the whole
+     * building.
+     *
+     * The flood ceiling is the one that is never refunded, and it is the reason
+     * the other two safely can be.
+     */
+    const limitKey = `${rateIp}|${username.toLowerCase()}`;
+    if (!loginLimiter.check(limitKey) || !loginLimiter.check(rateIp)) {
+      c.header("Retry-After", String(loginLimiter.retryAfterSeconds(limitKey)));
+      return c.json({ error: "rate_limited", message: "Too many login attempts. Please wait and try again." }, 429);
+    }
+
+    // Stalwart accepts TOTP codes appended to the password as "password$123456".
+    const effectivePassword = totp ? `${password}$${totp}` : password;
+    const authorization = `Basic ${Buffer.from(`${username}:${effectivePassword}`, "utf8").toString("base64")}`;
+    try {
+      const upstream = await fetchUpstreamSession(authorization, upstreamFor(username));
+      // ihasmail requires Stalwart 0.16 or newer. Refuse here, once and
+      // clearly, rather than signing someone in and letting Files, the account
+      // locale and self-service credentials each fail in their own way with
+      // nothing to connect them. The credentials were good, so say so.
+      if (!hasStalwartRegistry(upstream)) {
+        // The credentials were accepted; only the server is too old. Not an
+        // attempt worth counting against them.
+        loginLimiter.refund(limitKey);
+        loginLimiter.refund(rateIp);
+        return c.json(
+          {
+            error: "unsupported_server",
+            message:
+              "Your credentials are fine, but this mail server is older than Stalwart 0.16, which ihasmail needs. Upgrade the server, or run the release tagged stalwart-0.15-support.",
+          },
+          501,
+        );
+      }
+      loginLimiter.reset(limitKey);
+      const { cookie, session } = sessions.create({
+        username,
+        account: accountKey(upstreamFor(username), upstream.username || username),
+        password: effectivePassword,
+        remember: Boolean(body.remember),
+        userAgent: c.req.header("user-agent") ?? "",
+        ip,
+      });
+      setSessionCookie(c, cookie, session.remember);
+      // Start the account's push subscription now, so it is usually verified
+      // by the time the browser opens its stream. See push.ts.
+      const mailAccount = upstream.primaryAccounts?.["urn:ietf:params:jmap:mail"];
+      if (mailAccount) pushPrepare(session.username, mailAccount, session.authorization);
+      const info = await getAccountInfo(session.id, session.authorization, upstream);
+      return c.json(localizeSession(upstream, sessionExtras(session, info)));
+    } catch (err) {
+      // A rejected sign-in that carried a two-factor code is worth explaining
+      // rather than calling "invalid credentials", because the credentials are
+      // very likely fine.
+      //
+      // Stalwart accepts a TOTP code only through an OAuth flow -- its own web
+      // interface is an OAuth client, which is why signing in there works. It
+      // offers no password grant, so a client holding a username and password
+      // cannot exchange them plus a code for a token, and the concatenated
+      // `password$code` form ihasmail sent is not a route the server has. Its
+      // documented answer for clients like this one is an app password, which
+      // bypasses TOTP entirely.
+      //
+      // ihasmail already relies on that elsewhere: turning 2FA *on* mints an
+      // app password and moves the session onto it, precisely because a plain
+      // password stops working from that moment. The sign-in page was the one
+      // place still pretending otherwise.
+      if (totp && err instanceof UpstreamError && err.status === 401) {
+        return c.json(
+          {
+            error: "totp_unsupported",
+            message:
+              "This mail server does not accept two-factor codes from webmail. Sign in with an app password instead — create one in Stalwart's own settings, under app passwords. Your password and code are probably fine.",
+          },
+          401,
+        );
+      }
+      /*
+       * A 401 is a judgment about the password and stays counted. Anything
+       * else -- refused, timed out, DNS, TLS -- is the upstream failing to
+       * answer, which says nothing about the credentials and must not spend
+       * somebody's attempts while they wait for it to come back (#239).
+       */
+      if (!(err instanceof UpstreamError && err.status === 401)) {
+        loginLimiter.refund(limitKey);
+        loginLimiter.refund(rateIp);
+      }
+      return upstreamFailure(c, err);
+    }
+  });
+
+  api.get("/auth/session", requireSession, async (c) => {
+    const session = c.get("session");
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username), c.req.query("refresh") === "1");
+      const info = await getAccountInfo(session.id, session.authorization, upstream);
+      return c.json(localizeSession(upstream, sessionExtras(session, info)));
+    } catch (err) {
+      if (err instanceof UpstreamError && err.status === 401) {
+        sessions.destroy(session.id);
+        deleteCookie(c, config.cookieName, { path: cookiePath });
+      }
+      return upstreamFailure(c, err);
+    }
+  });
+
+  api.post("/auth/logout", async (c) => {
+    const cookie = getCookie(c, config.cookieName);
+    const session = sessions.resolve(cookie);
+    if (session) {
+      sessions.destroy(session.id);
+      forgetUpstreamSession(session.id);
+    }
+    deleteCookie(c, config.cookieName, { path: cookiePath });
+    return c.json({ ok: true });
+  });
+
+  api.get("/auth/sessions", requireSession, (c) => {
+    const session = c.get("session");
+    return c.json({ current: session.id, sessions: sessions.listForUser(session.account) });
+  });
+
+  api.post("/auth/sessions/revoke-others", requireSession, (c) => {
+    const session = c.get("session");
+    const n = sessions.destroyAllForUser(session.account, session.id);
+    return c.json({ revoked: n });
+  });
+
+  // ---------- Self-service credentials ----------
+  /**
+   * Password, app passwords and 2FA. These live on the server rather than in
+   * the browser because changing a credential means re-sealing the session
+   * cookie that holds it, and because the browser only ever sees /api/jmap.
+   */
+  const accountCtx = async (c: Context<Env>) => {
+    const session = c.get("session");
+    // The account's own server. Without it, the first fetch after the cached
+    // session expires goes to STALWART_URL -- which, for a domain mapped
+    // elsewhere, either refuses the password or knows a different account by
+    // the same name (#238).
+    const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+    return { authorization: session.authorization, session: upstream, username: session.username };
+  };
+
+  const accountFailure = (c: Context, err: unknown) => {
+    if (err instanceof AccountError) {
+      return c.json({ error: err.code, message: err.message }, err.status as 400);
+    }
+    return upstreamFailure(c, err);
+  };
+
+  /** Guard the endpoints that check a password against brute-forcing. */
+  const guarded = (c: Context<Env>, scope = "account"): Response | null => {
+    const key = `${scope}|${c.get("session").username.toLowerCase()}`;
+    if (accountLimiter.check(key)) return null;
+    c.header("Retry-After", String(accountLimiter.retryAfterSeconds(key)));
+    return c.json({ error: "rate_limited", message: "Too many attempts. Please wait and try again." }, 429);
+  };
+
+  api.get("/account/security", requireSession, async (c) => {
+    const session = c.get("session");
+    try {
+      return c.json(await getState(await accountCtx(c)));
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+  });
+
+  api.post("/account/password", requireSession, async (c) => {
+    const limited = guarded(c);
+    if (limited) return limited;
+    const session = c.get("session");
+    const body = await readJson<{ current?: string; next?: string; otpCode?: string }>(c);
+    if (!body) return c.json({ error: "bad_request" }, 400);
+    const current = body.current ?? "";
+    const next = body.next ?? "";
+    if (!current || !next) return c.json({ error: "missing_fields", message: "Both passwords are required." }, 400);
+    if (next.length > 1024) return c.json({ error: "bad_request" }, 400);
+    if (next === current) {
+      return c.json({ error: "unchanged", message: "The new password matches the old one." }, 400);
+    }
+    try {
+      await changePassword(await accountCtx(c), { current, next, otpCode: body.otpCode?.trim() || undefined });
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+    // The old password is now dead: re-seal this session with the new one and
+    // drop the others, whose sealed copies would fail on their next call.
+    const otpCode = body.otpCode?.trim();
+    sessions.reseal(getCookie(c, config.cookieName), otpCode ? `${next}$${otpCode}` : next);
+    forgetUpstreamSession(session.id);
+    const revoked = sessions.destroyAllForUser(session.account, session.id);
+    return c.json({ ok: true, revokedSessions: revoked });
+  });
+
+  api.get("/account/app-passwords", requireSession, async (c) => {
+    const session = c.get("session");
+    try {
+      const state = await getState(await accountCtx(c));
+      return c.json({ appPasswords: state.appPasswords });
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+  });
+
+  /*
+   * An app password is a credential that outlives this session, a password
+   * change and a sign-out -- so minting one asks for the account password, as
+   * changing the password does. Otherwise a session left open on somebody
+   * else's machine is enough to take a permanent key away from it.
+   */
+  api.post("/account/app-passwords", requireSession, async (c) => {
+    // A budget of its own: guessing here never reaches Stalwart (see confirmsPassword).
+    const limited = guarded(c, "app-password");
+    if (limited) return limited;
+    const session = c.get("session");
+    const body = await readJson<{ description?: string; current?: string }>(c);
+    if (!body) return c.json({ error: "bad_request" }, 400);
+    const description = (body.description ?? "").trim().slice(0, 120);
+    if (!description) return c.json({ error: "missing_fields", message: "Give the app password a name." }, 400);
+    const current = body.current ?? "";
+    if (!current || current.length > 1024) return c.json({ error: "missing_fields", message: "Enter your current password." }, 400);
+    if (!(await confirmsPassword(session, current))) {
+      return c.json({ error: "invalid_credentials", message: "That password is not correct." }, 403);
+    }
+    try {
+      return c.json(await createAppPassword(await accountCtx(c), { description }));
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+  });
+
+  api.post("/account/app-passwords/revoke", requireSession, async (c) => {
+    const session = c.get("session");
+    const body = await readJson<{ id?: string }>(c);
+    if (!body?.id) return c.json({ error: "bad_request" }, 400);
+    try {
+      await revokeAppPassword(await accountCtx(c), body.id);
+      return c.json({ ok: true });
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+  });
+
+  api.post("/account/2fa/begin", requireSession, async (c) => {
+    try {
+      // Nothing is stored yet; the client hands the URL back to confirm.
+      return c.json(beginOtpEnrollment(await accountCtx(c)));
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+  });
+
+  api.post("/account/2fa/enable", requireSession, async (c) => {
+    const limited = guarded(c);
+    if (limited) return limited;
+    const session = c.get("session");
+    const body = await readJson<{ url?: string; code?: string; current?: string }>(c);
+    if (!body?.url || !body.code || !body.current) return c.json({ error: "bad_request" }, 400);
+    const ctx = await accountCtx(c);
+    const code = body.code.trim();
+    /*
+     * Every proxied call re-authenticates with the stored password, and once
+     * 2FA is on the server wants a fresh TOTP code alongside it — which we
+     * cannot produce between requests. An app password authenticates without
+     * one, so the session moves onto a dedicated app password rather than
+     * being signed out the moment 2FA is switched on.
+     *
+     * Order matters: mint it while the current credential still works, since
+     * the moment 2FA is enabled this session can no longer authenticate at all.
+     */
+    try {
+      assertEnrollmentCode(body.url, code);
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+    let app: { id: string; secret: string } | null = null;
+    try {
+      app = await createAppPassword(ctx, { description: appPasswordName(c) });
+    } catch (err) {
+      // Out of app-password quota, say. 2FA is still worth having; the user
+      // just has to sign in again afterwards.
+      console.warn("[ihasmail] could not mint a session app password:", (err as Error).message);
+    }
+    try {
+      await enableOtp(ctx, { url: body.url, code, current: body.current });
+    } catch (err) {
+      if (app) {
+        // Don't leave a credential behind for a change that never happened.
+        await revokeAppPassword(ctx, app.id).catch(() => {});
+      }
+      return accountFailure(c, err);
+    }
+    let sessionKept = false;
+    if (app) {
+      sessionKept = sessions.reseal(getCookie(c, config.cookieName), app.secret);
+      if (sessionKept) forgetUpstreamSession(session.id);
+    }
+    // Other sessions still hold the bare password and will be refused.
+    const revoked = sessions.destroyAllForUser(session.account, session.id);
+    return c.json({ ok: true, sessionKept, revokedSessions: revoked });
+  });
+
+  api.post("/account/2fa/disable", requireSession, async (c) => {
+    const limited = guarded(c);
+    if (limited) return limited;
+    const session = c.get("session");
+    const body = await readJson<{ current?: string; code?: string }>(c);
+    if (!body?.current || !body.code) return c.json({ error: "bad_request" }, 400);
+    try {
+      await disableOtp(await accountCtx(c), { current: body.current, code: body.code.trim() });
+    } catch (err) {
+      return accountFailure(c, err);
+    }
+    // This session may be running on the app password minted when 2FA went on;
+    // the plain password works again now, so put it back.
+    sessions.reseal(getCookie(c, config.cookieName), body.current);
+    forgetUpstreamSession(session.id);
+    return c.json({ ok: true });
+  });
+
+  // ---------- JMAP API proxy ----------
+  api.post("/jmap", requireSession, apiRateLimited, async (c) => {
+    const session = c.get("session");
+    const ct = c.req.header("content-type") ?? "";
+    if (!ct.toLowerCase().startsWith("application/json")) {
+      return c.json({ error: "unsupported_media_type" }, 415);
+    }
+    /*
+     * For a session that may not administer -- administration switched off, or
+     * a device not marked as the person's own -- the body is read and checked
+     * before it goes anywhere. A session that may streams straight through as
+     * it always has, and pays nothing for this.
+     */
+    let body: ReadableStream<Uint8Array> | string | null = c.req.raw.body;
+    if (!administrationAllowed(config.administration, session.remember)) {
+      const held = gatedReads.get(session.id) ?? 0;
+      if (held >= MAX_GATED_PER_SESSION) {
+        c.header("Retry-After", "1");
+        return c.json({ error: "rate_limited" }, 429);
+      }
+      gatedReads.set(session.id, held + 1);
+      let raw: string;
+      try {
+        if (Number(c.req.header("content-length") ?? "0") > MAX_GATED_REQUEST) return c.json({ error: "too_large" }, 413);
+        // Counted as it arrives: a chunked body carries no length to refuse up front.
+        raw = c.req.raw.body ? await readGated(c.req.raw.body) : "";
+      } catch (err) {
+        if (err instanceof GatedBudgetError) {
+          c.header("Retry-After", "1");
+          return c.json({ error: "busy" }, 503);
+        }
+        return c.json({ error: "too_large" }, 413);
+      } finally {
+        const left = (gatedReads.get(session.id) ?? 1) - 1;
+        if (left > 0) gatedReads.set(session.id, left);
+        else gatedReads.delete(session.id);
+      }
+      const gate = gateAdministration(raw);
+      if (!gate.ok) {
+        if (!gate.method) return c.json({ error: "bad_request", message: "Not a JMAP request." }, 400);
+        return config.administration
+          ? c.json({ error: "administration_needs_own_device", message: `Administration is only available when signed in on a device marked as your own (${gate.method}).` }, 403)
+          : c.json({ error: "administration_disabled", message: `Administration is turned off on this installation (${gate.method}).` }, 403);
+      }
+      body = gate.body;
+    }
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const res = await fetch(absoluteUpstream(upstream.apiUrl, upstream.baseUrl), {
+        method: "POST",
+        headers: {
+          authorization: session.authorization,
+          "content-type": "application/json",
+          accept: "application/json",
+        },
+        body,
+        duplex: "half",
+        signal: AbortSignal.timeout(config.upstreamTimeout),
+      });
+      if (res.status === 401) {
+        sessions.destroy(session.id);
+        forgetUpstreamSession(session.id);
+        deleteCookie(c, config.cookieName, { path: cookiePath });
+        return c.json({ error: "unauthenticated" }, 401);
+      }
+      return passthrough(res);
+    } catch (err) {
+      return upstreamFailure(c, err);
+    }
+  });
+
+  // ---------- Administration: Stalwart's permission list ----------
+  /*
+   * The one administration read that is not a JMAP call: the labeled list of
+   * permissions from Stalwart's schema, for the Roles picker. Behind the same
+   * two gates as the registry methods, so a session that may not administer
+   * learns nothing from it.
+   */
+  api.get("/admin/permissions", requireSession, apiRateLimited, async (c) => {
+    const session = c.get("session");
+    if (!administrationAllowed(config.administration, session.remember)) {
+      return config.administration
+        ? c.json({ error: "administration_needs_own_device" }, 403)
+        : c.json({ error: "administration_disabled" }, 403);
+    }
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const permissions = await fetchPermissions(session.authorization, upstream.baseUrl);
+      if (!permissions) return c.json({ error: "upstream_error" }, 502);
+      return c.json({ permissions });
+    } catch (err) {
+      return upstreamFailure(c, err);
+    }
+  });
+
+  // ---------- Blob upload ----------
+  api.post("/upload/:accountId", requireSession, async (c) => {
+    const session = c.get("session");
+    const accountId = c.req.param("accountId");
+    const len = Number(c.req.header("content-length") ?? "0");
+    if (len > config.maxUploadBytes) return c.json({ error: "too_large" }, 413);
+    // content-length is absent on a chunked request, so the header alone is a
+    // suggestion; count the bytes as they go past.
+    const body = c.req.raw.body ? c.req.raw.body.pipeThrough(byteCap(config.maxUploadBytes)) : null;
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const url = absoluteUpstream(expandTemplate(upstream.uploadUrl, { accountId }), upstream.baseUrl);
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          authorization: session.authorization,
+          "content-type": c.req.header("content-type") ?? "application/octet-stream",
+          accept: "application/json",
+        },
+        body,
+        duplex: "half",
+        signal: AbortSignal.timeout(Math.max(config.upstreamTimeout, 5 * 60_000)),
+      });
+      return passthrough(res);
+    } catch (err) {
+      return upstreamFailure(c, err);
+    }
+  });
+
+  // ---------- Blob download ----------
+  api.get("/blob/:accountId/:blobId/:name", requireSession, apiRateLimited, async (c) => {
+    const session = c.get("session");
+    const { accountId, blobId, name } = c.req.param();
+    const accept = c.req.query("accept") ?? "application/octet-stream";
+    const inline = c.req.query("inline") === "1";
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const url = absoluteUpstream(expandTemplate(upstream.downloadUrl, { accountId, blobId, name, type: accept }), upstream.baseUrl);
+      // A PDF viewer or a video element asks for pieces; pass that on. A server
+      // that ignores it answers with the whole file, as it did before.
+      const range = c.req.header("range");
+      const res = await fetch(url, {
+        // Ask for the bytes as they are. undici would otherwise negotiate gzip
+        // on our behalf and hand back a decompressed body whose content-length
+        // header still describes the compressed one -- see forwardedContentLength.
+        headers: { authorization: session.authorization, "accept-encoding": "identity", ...(range && /^bytes=[\d,\s-]+$/.test(range) ? { range } : {}) },
+        signal: AbortSignal.timeout(Math.max(config.upstreamTimeout, 5 * 60_000)),
+      });
+      if (res.status === 416) return c.body(null, 416);
+      if (!res.ok) return c.json({ error: "not_found" }, res.status === 404 ? 404 : 502);
+      const headers = new Headers();
+      const type = sanitizeContentType(res.headers.get("content-type") ?? accept);
+      headers.set("Content-Type", type);
+      const cl = forwardedContentLength(res.headers);
+      if (cl) headers.set("Content-Length", cl);
+      const partial = res.status === 206 && res.headers.get("content-range");
+      if (partial) headers.set("Content-Range", partial);
+      /*
+       * Said here because Stalwart does not say it. It honors a single byte
+       * range but sends no `Accept-Ranges` (0.16.22, checked live on
+       * 2026-09-16), and Chrome's PDF viewer only reads a file in pieces when
+       * the first response advertises it. A server that ignores a range sends
+       * the whole file, which the browser takes just as well.
+       */
+      headers.set("Accept-Ranges", "bytes");
+      const safeInline = inline && isInlineSafe(type);
+      headers.set(
+        "Content-Disposition",
+        `${safeInline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(withoutBidiControls(name))}`,
+      );
+      headers.set("X-Content-Type-Options", "nosniff");
+      // Sandbox everything except the browser's built-in PDF viewer (which needs scripts to render).
+      if (securityHeadersFor(type, safeInline) === "SAMEORIGIN") {
+        /*
+         * The one response on the server that may be framed.
+         *
+         * A PDF is shown in an iframe -- it is its own document and the app
+         * cannot lay it out -- and the blanket X-Frame-Options: DENY above
+         * blocked that, so the preview showed Chrome's "refused to connect"
+         * instead of the file. SAMEORIGIN, not a relaxation to any site: the
+         * frame is ours, on our origin, and the app's own CSP already says
+         * frame-src 'self'. Nothing else here is framed, so nothing else asks.
+         */
+        headers.set("X-Frame-Options", "SAMEORIGIN");
+      } else {
+        headers.set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:");
+      }
+      // Kept out of the browser's disk cache on a device that is not the
+      // person's own: signing out wipes what the app stores, not that.
+      /*
+       * A blob id names its content -- the same id is the same bytes for good
+       * -- so on the reader's own device there is nothing to revalidate. On
+       * anyone else's, nothing is left in the disk cache at all.
+       */
+      headers.set("Cache-Control", session.remember ? "private, max-age=31536000, immutable" : "no-store");
+      return new Response(res.body, { status: partial ? 206 : 200, headers });
+    } catch (err) {
+      return upstreamFailure(c, err);
+    }
+  });
+
+  // ---------- Push (Server-Sent Events) ----------
+  api.get("/events", requireSession, async (c) => {
+    const session = c.get("session");
+    const types = c.req.query("types") ?? "*";
+    const closeafter = c.req.query("closeafter") ?? "no";
+    const ping = c.req.query("ping") ?? "30";
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const url = absoluteUpstream(expandTemplate(upstream.eventSourceUrl, { types, closeafter, ping }), upstream.baseUrl);
+      // Subscribe mode: if this account's subscription is verified, the tab is
+      // served by fan-out and holds nothing upstream. Otherwise it gets its own
+      // relay, and is moved to fan-out the moment the account verifies.
+      const accountId = upstream.primaryAccounts?.["urn:ietf:params:jmap:mail"];
+      const out = (c.env as { outgoing: import("node:http").ServerResponse }).outgoing;
+      if (accountId && pushAttach(session.username, accountId, session.authorization, out)) {
+        out.writeHead(200, SSE_HEADERS);
+        out.flushHeaders();
+        out.write(": subscribed\n\n");
+        return RESPONSE_ALREADY_SENT;
+      }
+      if (config.rawPushRelay) return relayPushRaw(c, url, session.authorization, session.username);
+      const controller = new AbortController();
+      c.req.raw.signal.addEventListener("abort", () => controller.abort());
+      const res = await fetch(url, {
+        headers: { authorization: session.authorization, accept: "text/event-stream" },
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) return c.json({ error: "upstream_error" }, 502);
+      const headers = new Headers({
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+      return new Response(res.body, { status: 200, headers });
+    } catch (err) {
+      return upstreamFailure(c, err);
+    }
+  });
+
+  // ---------- Remote image privacy proxy ----------
+  api.get("/image", requireSession, apiRateLimited, imageProxyHandler);
+// Behind the session for the same reason the image proxy is: an open fetcher
+// on someone else's server is a gift to whoever finds it.
+api.get("/ics", requireSession, apiRateLimited, icsProxyHandler);
+
+  api.notFound((c) => c.json({ error: "not_found" }, 404));
+  api.onError((err, c) => {
+    console.error("[ihasmail] api error:", err);
+    return c.json({ error: "internal_error" }, 500);
+  });
+
+  app.route(`${basePath}/api`, api);
+
+  // ---------- Static SPA ----------
+  app.get("*", staticHandler(config.staticDir, basePath));
+  return app;
+}
+
+/** Fail a stream that runs past `max` bytes, whatever its headers claimed. */
+function byteCap(max: number): TransformStream<Uint8Array, Uint8Array> {
+  let total = 0;
+  return new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      if (total > max) controller.error(new Error("upload too large"));
+      else controller.enqueue(chunk);
+    },
+  });
+}
+
+async function readJson<T>(c: Context): Promise<T | null> {
+  try {
+    return (await c.req.json()) as T;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Is `candidate` the password of the account this session is signed in to?
+ *
+ * Compared with the credential the session holds first, which costs nothing
+ * and tells Stalwart nothing -- its auto-ban counts failures against the
+ * proxy's address, which every user shares. That credential is the password,
+ * with a TOTP code after a `$` when one was given at sign-in. A session that
+ * turning on 2FA moved onto an app password (Stalwart's secrets start
+ * `$app$`) holds something else, and only then is the candidate put to the
+ * server.
+ */
+async function confirmsPassword(session: LiveSession, candidate: string): Promise<boolean> {
+  const decoded = Buffer.from(session.authorization.replace(/^Basic /, ""), "base64").toString("utf8");
+  const held = decoded.slice(decoded.indexOf(":") + 1);
+  if (safeEqual(held, candidate)) return true;
+  const withoutCode = held.replace(/\$\d{6,8}$/, "");
+  if (withoutCode !== held && safeEqual(withoutCode, candidate)) return true;
+  // Holding the password, the comparison above is the answer, and a wrong
+  // guess never reaches the server's auto-ban.
+  if (!held.startsWith("$app$")) return false;
+  try {
+    const authorization = `Basic ${Buffer.from(`${session.username}:${candidate}`, "utf8").toString("base64")}`;
+    await fetchUpstreamSession(authorization, upstreamFor(session.username));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Direction overrides and isolates, which can make `Invoice_\u202Efdp.exe`
+ * read as a PDF in the downloads list. A filename has no use for them.
+ */
+function withoutBidiControls(name: string): string {
+  return name.replace(/[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+}
+
+/** Name the app password after the browser it will live in. */
+function appPasswordName(c: Context): string {
+  const ua = c.req.header("user-agent") ?? "";
+  const browser = /Firefox\//.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "browser";
+  return `${config.appName} (${browser})`;
+}
+
+function sessionExtras(session: LiveSession, info: AccountInfo = { locale: null, edition: null, permissions: [] }) {
+  return {
+    ihasmail: {
+      appName: config.appName,
+      sourceUrl: config.sourceUrl,
+      imageProxy: config.imageProxy,
+      maxUploadBytes: config.maxUploadBytes,
+      sessionId: session.id,
+      loginName: session.username,
+      remember: session.remember,
+      /** Locale configured for the account in Stalwart's directory, if readable. */
+      userLocale: info.locale,
+      /**
+       * What the upstream server would tell us about itself, and -- for a
+       * session that may administer -- where the operator says its own
+       * administration is.
+       */
+      server: {
+        edition: info.edition,
+        adminUrl: administrationAllowed(config.administration, session.remember) ? adminUrlFor(session.username, info.adminUrl ?? null) : null,
+        /** SHOW_ENTERPRISE_NOTICES: say "Enterprise feature" on Enterprise too, as the demo does. */
+        enterpriseNotices: config.showEnterpriseNotices,
+      },
+      /**
+       * Whether this session may administer: the installation offers it
+       * (ADMINISTRATION) and the person signed in on a device marked as their own.
+       */
+      administration: administrationAllowed(config.administration, session.remember),
+      /**
+       * An administrator signed in on a device not marked as their own, so the
+       * menu can say why Administration is unavailable rather than lose it
+       * without a word. Says only that the account administers, never what it
+       * may do.
+       */
+      administrationNeedsOwnDevice: config.administration && !session.remember && grantsAdministration(info.permissions),
+      /**
+       * The account's permissions on that server, so the client can offer
+       * administration to those who have it. Stalwart still decides every call.
+       * Withheld from a session that may not administer: nothing in it needs them.
+       */
+      permissions: administrationAllowed(config.administration, session.remember) ? info.permissions : [],
+    },
+  };
+}
+
+/**
+ * Headers worth relaying from the mail server. An allowlist rather than a
+ * denylist: everything else it might set — cookies, auth challenges, CORS
+ * grants — would be landing on *our* origin, where it means something else.
+ */
+/**
+ * The largest JMAP request read into memory for the administration check.
+ *
+ * Only sessions that may not administer come this way, and what the client
+ * sends is small: attachments and pasted images go through `/upload`, and the
+ * composer turns inline images into uploads before a draft is saved. Stalwart
+ * would take up to its `maxSizeRequest` (10 MB by default), but a request is
+ * held here as a string, parsed and serialized again, so each one costs
+ * several times its size; 4 MB is far past anything the client sends.
+ */
+const MAX_GATED_REQUEST = 4 * 1024 * 1024;
+/**
+ * How many checked requests one session may have in flight at once. Matches
+ * the `maxConcurrentRequests` Stalwart advertises by default, which the client
+ * already stays within.
+ */
+const MAX_GATED_PER_SESSION = 4;
+/**
+ * The bytes all checked requests together may hold at once. Counted as they
+ * arrive rather than reserved up front, so a slow body that has sent little
+ * holds little, and a burst of large ones is turned away with a 503 instead of
+ * taking the process down.
+ */
+const GATED_BUDGET = 32 * 1024 * 1024;
+const gatedReads = new Map<string, number>();
+let gatedBytes = 0;
+
+class GatedBudgetError extends Error {}
+
+async function readGated(stream: ReadableStream<Uint8Array>): Promise<string> {
+  let mine = 0;
+  const counted = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      mine += chunk.byteLength;
+      gatedBytes += chunk.byteLength;
+      if (mine > MAX_GATED_REQUEST) controller.error(new Error("request too large"));
+      else if (gatedBytes > GATED_BUDGET) controller.error(new GatedBudgetError("gated read budget spent"));
+      else controller.enqueue(chunk);
+    },
+  });
+  try {
+    return await new Response(stream.pipeThrough(counted)).text();
+  } finally {
+    gatedBytes -= mine;
+  }
+}
+
+const PASSTHROUGH_HEADERS = new Set(["content-type", "content-disposition", "content-language", "etag", "last-modified", "retry-after"]);
+
+/**
+ * Hold a push stream open with the least machinery that will do it.
+ *
+ * The fetch() version above builds an undici Response, a web ReadableStream,
+ * a reader, and Hono's stream-to-Node bridge for every tab, and keeps all of
+ * it alive for as long as the tab is open. Measured against a real Stalwart
+ * that is about 44 KiB of JavaScript heap per tab -- twelve times what the
+ * session itself costs -- and a signed-in tab is otherwise nothing but this
+ * one held connection. Here the upstream socket is piped straight into the
+ * Node response, so what stays resident per tab is two sockets and their
+ * small IncomingMessage/ServerResponse pair.
+ *
+ * Returns a Response Hono treats as already sent: the raw bindings are
+ * written to directly, and the returned value is never serialized.
+ */
+const SSE_HEADERS = {
+  "content-type": "text/event-stream",
+  "cache-control": "no-cache, no-transform",
+  connection: "keep-alive",
+  "x-accel-buffering": "no",
+} as const;
+
+function relayPushRaw(c: Context<Env>, url: string, authorization: string, username?: string): Response {
+  const out = (c.env as { outgoing: import("node:http").ServerResponse }).outgoing;
+  const target = new URL(url);
+  const req = (target.protocol === "https:" ? httpsRequest : httpRequest)(target, {
+    method: "GET",
+    headers: { authorization, accept: "text/event-stream" },
+  });
+  const signal = c.req.raw.signal;
+  const abort = () => req.destroy();
+  signal.addEventListener("abort", abort);
+  out.on("close", abort);
+  const fail = () => {
+    if (!out.headersSent) {
+      out.writeHead(502, { "content-type": "application/json", "cache-control": "no-store" });
+      out.end(JSON.stringify({ error: "upstream_error" }));
+    } else {
+      out.end();
+    }
+  };
+  /*
+   * Once this account's subscription verifies, the upstream request goes and
+   * the browser stream below is served by fan-out instead. Three things have
+   * to be true for that to be seamless: the browser must already have its
+   * headers (verification can beat the upstream response); nothing may treat
+   * the torn-down upstream as an error; and nothing may keep a reference to
+   * it -- the request, its response and this handler's context are exactly
+   * the per-tab weight the subscription exists to shed.
+   */
+  let migrated = false;
+  const migrate = () => {
+    migrated = true;
+    if (!out.headersSent) { out.writeHead(200, SSE_HEADERS); out.flushHeaders(); }
+    signal.removeEventListener("abort", abort);
+    out.removeListener("close", abort);
+    req.removeAllListeners();
+    req.on("error", () => {});
+    req.destroy();
+  };
+  if (username) pushAttachRelay(username, out, migrate);
+  req.on("response", (res) => {
+    if (migrated) { res.destroy(); return; }
+    if (res.statusCode !== 200) { res.resume(); fail(); return; }
+    if (!out.headersSent) { out.writeHead(200, SSE_HEADERS); out.flushHeaders(); }
+    // end: false -- the browser stream outlives the upstream if we migrate.
+    res.pipe(out, { end: false });
+    res.on("end", () => { if (!migrated) out.end(); });
+    res.on("error", () => { if (!migrated) out.end(); });
+  });
+  req.on("error", () => { if (!migrated) fail(); });
+  req.end();
+  // Tells @hono/node-server the raw ServerResponse has been written to and
+  // must be left alone.
+  return RESPONSE_ALREADY_SENT;
+}
+
+function passthrough(res: Response): Response {
+  const headers = new Headers();
+  res.headers.forEach((v, k) => {
+    if (PASSTHROUGH_HEADERS.has(k.toLowerCase())) headers.set(k, v);
+  });
+  if (!headers.has("content-type")) headers.set("content-type", "application/json");
+  headers.set("Cache-Control", "no-store");
+  return new Response(res.body, { status: res.status, headers });
+}
+
+/**
+ * The upstream content-length, but only when it describes the bytes we are
+ * about to forward.
+ *
+ * A compressed response is decompressed for us before we ever see the body --
+ * undici does it transparently -- while the content-length header is left
+ * describing the *compressed* length. Copying it onto the longer body we then
+ * send makes the browser stop reading exactly that many bytes in and call the
+ * download complete, so the file arrives silently truncated.
+ *
+ * That is the second half of issue #76. A hop in front of Stalwart compressed
+ * responses over 1 KiB, so a Sieve script stayed intact until the third rule
+ * pushed it past the threshold and it came back cut off mid-rule. Nothing
+ * reported an error: the script parsed, just with rules missing, and saving
+ * wrote that shortened version back over the real one.
+ *
+ * We ask for `identity` above so the usual case still carries a length the
+ * browser can show progress against; this is the guard for a hop that
+ * compresses anyway.
+ */
+export function forwardedContentLength(headers: Headers): string | null {
+  const encoding = headers.get("content-encoding")?.trim().toLowerCase();
+  if (encoding && encoding !== "identity") return null;
+  return headers.get("content-length");
+}
+
+function sanitizeContentType(ct: string): string {
+  const lower = ct.split(";")[0]!.trim().toLowerCase();
+  // Never let the browser render HTML/SVG/XML/JS served from the blob endpoint.
+  if (
+    lower === "text/html" ||
+    lower === "application/xhtml+xml" ||
+    lower === "image/svg+xml" ||
+    lower.includes("javascript") ||
+    lower === "text/xml" ||
+    lower === "application/xml"
+  ) {
+    return "application/octet-stream";
+  }
+  if (lower.startsWith("text/")) return `${lower}; charset=utf-8`;
+  return lower || "application/octet-stream";
+}
+
+/**
+ * What X-Frame-Options a blob response carries. Exported so the rule is
+ * testable without standing up an upstream: a PDF served inline may be framed
+ * by us and nothing else may be framed at all.
+ */
+export function securityHeadersFor(type: string, safeInline: boolean): "SAMEORIGIN" | "DENY" {
+  return safeInline && type.split(";")[0]!.trim() === "application/pdf" ? "SAMEORIGIN" : "DENY";
+}
+
+function isInlineSafe(type: string): boolean {
+  const t = type.split(";")[0]!.trim();
+  return (
+    (t.startsWith("image/") && t !== "image/svg+xml") ||
+    t.startsWith("video/") ||
+    t.startsWith("audio/") ||
+    t === "application/pdf" ||
+    t === "text/plain" ||
+    t === "text/calendar" ||
+    t === "text/vcard"
+  );
+}

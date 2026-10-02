@@ -1,0 +1,48 @@
+{
+  "name": "webmail-app",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Ứng dụng Webmail tiếng Việt dùng chung trên web, Android và iOS",
+  "license": "AGPL-3.0-or-later",
+  "type": "module",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,magenta \"npm run dev -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web && npm run build -w server",
+    "start": "node server/dist/index.js",
+    "typecheck": "npm run typecheck -w web && npm run typecheck -w server",
+    "test": "npm run test -w web && npm run test -w server",
+    "lint": "npm run typecheck",
+    "mock": "npm run mock -w server",
+    "dev:mock": "concurrently -n mock,server,web -c yellow,blue,magenta \"npm run mock -w server\" \"STALWART_URL=http://127.0.0.1:8788 npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:mock:no-future-release": "concurrently -n mock,server,web -c yellow,blue,magenta \"npm run mock:no-future-release -w server\" \"STALWART_URL=http://127.0.0.1:8788 npm run dev -w server\" \"npm run dev -w web\"",
+    "i18n:coverage": "node scripts/i18n-coverage.mjs",
+    "i18n:check": "node scripts/i18n-catalog-check.mjs --check && node scripts/i18n-literals.mjs --check",
+    "dev:mock:no-keyword-sort": "concurrently -n mock,server,web -c yellow,blue,magenta \"npm run mock:no-keyword-sort -w server\" \"STALWART_URL=http://127.0.0.1:8788 npm run dev -w server\" \"npm run dev -w web\"",
+    "mobile:build": "node scripts/mobile-build.mjs",
+    "mobile:sync": "node scripts/mobile-build.mjs && cap sync",
+    "mobile:android": "cap open android",
+    "mobile:ios": "cap open ios",
+    "mobile:check": "node scripts/mobile-check.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "typescript": "^5.9.3",
+    "typescript-ast": "npm:typescript@^5.9.3",
+    "@capacitor/cli": "^8.0.0"
+  },
+  "dependencies": {
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor/share": "^8.0.0"
+  }
+}

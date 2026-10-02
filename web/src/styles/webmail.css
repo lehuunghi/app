@@ -1,0 +1,89 @@
+/* Gmail-inspired layout for the Webmail fork. Original styling; no Google assets.
+   Scoped to one palette so existing account themes and density choices survive. */
+:root[data-palette="webmail"] {
+  --topbar-h: 64px;
+  --font-sans: Arial, "Noto Sans", system-ui, sans-serif;
+  --bg: #f6f8fc;
+  --bg-elev: #ffffff;
+  --bg-sunken: #eaf1fb;
+  --bg-hover: #e8edf5;
+  --bg-active: #dce5f3;
+  --fg: #202124;
+  --fg-muted: #5f6368;
+  --fg-faint: #6c7075;
+  --border: #e3e7ee;
+  --border-strong: #b7c1d1;
+  --accent: #0b57d0;
+  --accent-fg: #ffffff;
+  --accent-soft: #d3e3fd;
+  --accent-soft-fg: #0842a0;
+  --link: #0b57d0;
+  --unread-bg: #ffffff;
+  --read-bg: #f2f6fc;
+  --selected-bg: #c2dbff;
+  --focus-ring: 0 0 0 3px rgb(11 87 208 / 30%);
+  --webmail-compose-bg: #c2e7ff;
+  --webmail-compose-fg: #001d35;
+}
+:root[data-palette="webmail"]:where([data-theme="dark"]) {
+  --bg: #202124;
+  --bg-elev: #292a2d;
+  --bg-sunken: #303134;
+  --bg-hover: #3c4043;
+  --bg-active: #45494e;
+  --fg: #e8eaed;
+  --fg-muted: #bdc1c6;
+  --fg-faint: #9aa0a6;
+  --border: #3c4043;
+  --border-strong: #6f7378;
+  --accent: #a8c7fa;
+  --accent-fg: #062e6f;
+  --accent-soft: #004a77;
+  --accent-soft-fg: #c2e7ff;
+  --link: #a8c7fa;
+  --unread-bg: #292a2d;
+  --read-bg: #242528;
+  --selected-bg: #26466d;
+  --focus-ring: 0 0 0 3px rgb(168 199 250 / 45%);
+  --webmail-compose-bg: #004a77;
+  --webmail-compose-fg: #c2e7ff;
+}
+:root[data-palette="webmail"] .topbar { gap: 12px; padding: 0 16px; }
+:root[data-palette="webmail"] .topbar .brand { font-size: 22px; font-weight: 400; }
+:root[data-palette="webmail"] .topbar .brand .brand-name { color: var(--fg-muted); }
+:root[data-palette="webmail"] .searchbar { margin-left: 16px; }
+:root[data-palette="webmail"] .searchbar .search-input { height: 48px; border-radius: 24px; border-color: transparent; }
+:root[data-palette="webmail"] .searchbar .search-input:focus-within { background: var(--bg-elev); box-shadow: var(--shadow-1); }
+:root[data-palette="webmail"] .compose-btn { align-self: flex-start; height: 56px; padding-inline: 20px 24px; background: var(--webmail-compose-bg); color: var(--webmail-compose-fg); box-shadow: none; }
+:root[data-palette="webmail"] .compose-btn svg { color: inherit; }
+:root[data-palette="webmail"] .compose-btn:hover { box-shadow: var(--shadow-2); }
+:root[data-palette="webmail"] .nav-section { text-transform: none; letter-spacing: 0; font-size: .85em; font-weight: 500; color: var(--fg-muted); padding-top: 16px; }
+:root[data-palette="webmail"] .nav-item { height: 34px; }
+:root[data-palette="webmail"] .module-bar { border-top: 0; gap: 4px; }
+:root[data-palette="webmail"] .module-link { border-radius: 16px; }
+:root[data-palette="webmail"] .main { border: 0; }
+:root[data-palette="webmail"] .msg-row .msg-check { opacity: .65; }
+:root[data-palette="webmail"] .msg-row.selected .msg-check,
+:root[data-palette="webmail"] .msg-row:hover .msg-check,
+:root[data-palette="webmail"] .msg-row .msg-check:focus-visible { opacity: 1; }
+:root[data-palette="webmail"] .msg-row:hover { box-shadow: inset 0 -1px 0 var(--border-strong), 0 1px 4px rgb(60 64 67 / 25%); }
+:root[data-palette="webmail"] .msg-row.focused { box-shadow: inset 3px 0 0 var(--accent); }
+:root[data-palette="webmail"] .thread-subject h1 { font-size: 1.55em; font-weight: 400; }
+:root[data-palette="webmail"] .composer-head { background: var(--bg-sunken); color: var(--fg); }
+:root[data-palette="webmail"] .composer-field > label { width: 58px; }
+:root[data-palette="webmail"] .fab { background: var(--webmail-compose-bg); color: var(--webmail-compose-fg); border-radius: 16px; }
+@media (min-width: 769px) {
+  :root[data-palette="webmail"] .app-body { padding: 0 16px 16px 0; }
+  :root[data-palette="webmail"] .main { border-radius: 16px; }
+  :root[data-palette="webmail"] .collapsed .compose-btn { padding: 0; align-self: auto; }
+  :root[data-palette="webmail"] .list-toolbar { min-height: 52px; }
+}
+@media (max-width: 768px) {
+  :root[data-palette="webmail"] .topbar { gap: 6px; padding-inline: 8px; }
+  :root[data-palette="webmail"] .searchbar { margin-left: 0; }
+  :root[data-palette="webmail"] .searchbar .search-input { height: 42px; }
+  :root[data-palette="webmail"] .main { border-radius: 0; }
+}
+@media print {
+  :root[data-palette="webmail"] .app-body { padding: 0; }
+}

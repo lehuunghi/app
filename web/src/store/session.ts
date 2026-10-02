@@ -1,0 +1,175 @@
+import { create } from "zustand";
+import { apiFetch, ApiError, CAP, client } from "@/jmap/client";
+import type { Id, JmapSession } from "@/jmap/types";
+import { push, type PushState } from "@/jmap/push";
+import { accountForCapability, ownAccountForCapability } from "@/lib/accountRouting";
+import { setServerLocale } from "@/lib/datetime";
+import { flushSettingsPush, stopSettingsSync } from "@/lib/settingsSync";
+import { reloadIfServerRebuilt } from "@/lib/sw/staleBuild";
+import { unsubscribeThisDevice } from "@/lib/notify/webpush";
+import { clearAllData, clearSignedInData, setDeviceTrusted } from "@/lib/storage";
+import { startIdleLogout, stopIdleLogout } from "@/lib/idleLogout";
+import { clearNativeSession } from "@/lib/mobile/runtime";
+
+export type AuthStatus = "loading" | "anonymous" | "authenticated";
+
+interface SessionState {
+  status: AuthStatus;
+  session: JmapSession | null;
+  /** Selected mail account (defaults to primary). */
+  accountId: Id | null;
+  error: string | null;
+  pushConnected: boolean;
+  /** Finer than pushConnected: tells "reconnecting" from "not connected". */
+  pushState: PushState;
+  bootstrap(): Promise<void>;
+  login(username: string, password: string, totp: string, remember: boolean): Promise<void>;
+  logout(): Promise<void>;
+  refresh(): Promise<void>;
+  setAccount(id: Id): void;
+  /** The account to read and write for a capability, honoring the account switcher. */
+  accountFor(cap: string): Id | null;
+  /** The user's own account for a capability, whatever they are looking at. */
+  ownAccountFor(cap: string): Id | null;
+}
+
+let refreshing: Promise<void> | null = null;
+
+export const useSession = create<SessionState>((set, get) => ({
+  status: "loading",
+  session: null,
+  accountId: null,
+  error: null,
+  pushConnected: false,
+  pushState: "disconnected",
+
+  async bootstrap() {
+    try {
+      const s = await apiFetch<JmapSession>("/api/auth/session");
+      applySession(s, set);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 401) set({ status: "anonymous", session: null, accountId: null });
+      else set({ status: "anonymous", error: (err as Error).message });
+    }
+  },
+
+  async login(username, password, totp, remember) {
+    set({ error: null });
+    const s = await apiFetch<JmapSession>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password, totp: totp || undefined, remember }),
+    });
+    applySession(s, set);
+  },
+
+  async logout() {
+    push.stop();
+    setServerLocale(null);
+    // Anything still sitting in the debounce is written while the session can
+    // still write it; a setting changed seconds before signing out is not lost.
+    try {
+      await flushSettingsPush();
+    } catch {
+      /* ignore */
+    }
+    // A push subscription lives on the account, not the session, so signing out
+    // without removing it leaves this browser notifying for a mailbox nobody is
+    // signed into. On a shared machine that is somebody else's mail.
+    try {
+      await unsubscribeThisDevice();
+    } catch {
+      /* never block signing out over this */
+    }
+    stopSettingsSync();
+    // A message still inside its undo window goes now, while there is a
+    // session to send it with; signing out is not an undo.
+    try {
+      const { useCompose } = await import("./compose");
+      await useCompose.getState().flushPendingSends();
+    } catch {
+      /* never block signing out over this */
+    }
+    try {
+      await apiFetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+    stopIdleLogout();
+    try { await clearNativeSession(); } catch { /* logout UI must still complete */ }
+    // Unconditional. The push subscription above is removed for exactly this
+    // reason -- that a browser left holding someone's mail is somebody else's
+    // problem next -- and the address book cached here is the same argument.
+    clearSignedInData();
+    client.session = null;
+    set({ status: "anonymous", session: null, accountId: null });
+  },
+
+  refresh() {
+    // Callers arriving while a refresh is on its way share it.
+    refreshing ??= (async () => {
+      try {
+        const s = await apiFetch<JmapSession>("/api/auth/session?refresh=1");
+        client.session = s;
+        setServerLocale(s.ihasmail?.userLocale);
+        set({ session: s });
+      } catch {
+        /* ignore */
+      } finally {
+        refreshing = null;
+      }
+    })();
+    return refreshing;
+  },
+
+  setAccount(id) {
+    set({ accountId: id });
+  },
+
+  accountFor(cap) {
+    return accountForCapability(get().session, get().accountId, cap);
+  },
+
+  ownAccountFor(cap) {
+    return ownAccountForCapability(get().session, cap);
+  },
+}));
+
+function applySession(s: JmapSession, set: (p: Partial<SessionState>) => void) {
+  client.session = s;
+  setServerLocale(s.ihasmail?.userLocale);
+  // `remember` is the answer to "is this device yours", given at sign-in and
+  // carried on the session -- so a reload arrives at the same answer without
+  // the client storing it, which on an untrusted device it could not do anyway.
+  const trusted = Boolean(s.ihasmail?.remember);
+  setDeviceTrusted(trusted);
+  if (trusted) {
+    stopIdleLogout();
+  } else {
+    // Residue from an earlier trusted session on this machine is exactly what
+    // an untrusted sign-in is asking us not to keep.
+    clearAllData();
+    startIdleLogout(() => void useSession.getState().logout());
+  }
+  const accountId = s.primaryAccounts[CAP.mail] ?? Object.keys(s.accounts)[0] ?? null;
+  set({ status: "authenticated", session: s, accountId, error: null });
+}
+
+client.onUnauthenticated(() => {
+  push.stop();
+  stopSettingsSync();
+  stopIdleLogout();
+  clearSignedInData();
+  client.session = null;
+  // Ask before showing the sign-in form rather than after. A deploy is the
+  // usual reason to be signed out here, and reloading a form someone has
+  // already started typing into would throw the password away.
+  void reloadIfServerRebuilt().then((reloading) => {
+    if (!reloading) useSession.setState({ status: "anonymous", session: null, accountId: null });
+  });
+});
+
+push.onConnection((state) => useSession.setState({ pushConnected: state === "connected", pushState: state }));
+
+export function hasCap(cap: string): boolean {
+  return client.hasCapability(cap);
+}

@@ -1,0 +1,13 @@
+{
+  "appId": "com.lehuunghi.webmail",
+  "appName": "Webmail",
+  "webDir": "mobile-dist",
+  "backgroundColor": "#f6f8fc",
+  "loggingBehavior": "debug",
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false },
+  "ios": { "contentInset": "never" },
+  "plugins": {
+    "CapacitorHttp": { "enabled": true }
+  }
+}

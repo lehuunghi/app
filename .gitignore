@@ -1,0 +1,30 @@
+node_modules/
+dist/
+.env
+# deploy.example.sh keeps its settings in .env.production; any .env.* holds APP_SECRET.
+.env.*
+!.env.example
+*.log
+.DS_Store
+server/data/
+.vite/
+coverage/
+
+
+# Native build products and signing material
+mobile-dist/
+android/.gradle/
+android/**/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Pods/
+ios/App/build/
+*.keystore
+*.jks
+*.mobileprovision
+*.p12
+*.xcuserstate
+**/xcuserdata/

@@ -1,0 +1,250 @@
+# CI for the self-hosted GitLab that replaced GitHub Actions when the account
+# was suspended on 2026-09-20. This is a port of .github/workflows/ci.yml and
+# publish.yml, which are kept in the tree for reference and for the day the
+# appeal succeeds.
+#
+# Every `image:` here is pinned to a digest, with the tag it belonged to in the
+# trailing comment. That is the direct replacement for the SHA-pinned `uses:`
+# in the Actions workflows: GitLab has no equivalent of an action allowlist, so
+# the only thing standing between this pipeline and whatever the publisher
+# pushes to a tag next is the digest. Read the comment for the version; the
+# digest is what runs. Do not "simplify" one back to a bare tag.
+#
+# The runner is a group runner on Web_Host with the host docker socket bound
+# in, reached over the internal container network rather than
+# https://git.coffeylabs.org -- that name is Cloudflare-proxied on the Free
+# plan, which caps request bodies at 100 MB and would break artifact uploads.
+
+stages: [test, build, publish, release]
+
+variables:
+  # Jobs talk to the registry directly on its DNS-only name, never through the
+  # proxy, for the same 100 MB reason.
+  IMAGE: $CI_REGISTRY_IMAGE
+  GIT_DEPTH: "0"
+
+default:
+  interruptible: true
+
+# ---------------------------------------------------------------- test ------
+node:
+  stage: test
+  image: node:26-bookworm-slim@sha256:582460f614631b59b824ac6020533b9bf339c7fdf3a6d7db31abb6b4065f0212 # 26-bookworm-slim
+  variables:
+    NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm"
+  cache:
+    key:
+      files: [package-lock.json]
+    paths: [.npm/]
+  before_script:
+    # version.test.ts shells out to git to resolve a build version, and the
+    # slim image ships without it. The clone is done by the runner's helper
+    # image, so nothing else here needs git and its absence is easy to miss.
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git
+    # config.test.ts chmods a directory to 0555 and expects the write to be
+    # refused. Root ignores the permission bits, so as root that assertion can
+    # never hold. The tests run as the image's unprivileged `node` user for
+    # that reason; -p keeps the environment.
+    #
+    # imageproxy.test.ts needs IPv6 as well, which is not set here but on the
+    # runner: jobs run on the `ci-net` docker network, created with --ipv6.
+    # Without a non-loopback IPv6 address on the container, getaddrinfo's
+    # AI_ADDRCONFIG drops ::1 from the results entirely, localhost resolves to
+    # IPv4 only, and the test's control case connects to a port nothing is
+    # listening on. That is a runner property, so it cannot be fixed from this
+    # file -- if these tests ever fail again with ECONNREFUSED on 127.0.0.1,
+    # check that the runner still puts jobs on an IPv6-enabled network.
+    - chown -R node:node "$CI_PROJECT_DIR"
+  script:
+    - su node -p -c "npm ci --ignore-scripts"
+    - su node -p -c "npm run typecheck"
+    - su node -p -c "npm test"
+    - su node -p -c "npm run build"
+  artifacts:
+    paths: [dist/]
+    expire_in: 1 week
+  rules:
+    - if: $RELEASE_WEEKLY == "1"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+# --------------------------------------------------------------- build ------
+# Proves the Dockerfile still builds on every change, without pushing. The
+# equivalent of ci.yml's final `docker build -t ihasmail:ci .` step.
+#
+# Not called `image`: that is a reserved keyword, and a job by that name is
+# silently read as the global image: setting instead ("image name should be a
+# string"). Same trap for `stages`, `cache`, `services` and `variables`.
+docker-build:
+  stage: build
+  image: docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d # 28-cli
+  needs: [node]
+  script:
+    - docker build -t ihasmail:ci-$CI_COMMIT_SHORT_SHA .
+    - docker image rm ihasmail:ci-$CI_COMMIT_SHORT_SHA
+  rules:
+    - if: $RELEASE_WEEKLY == "1"
+      when: never
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# ------------------------------------------------------------- publish ------
+# Tag-driven, replacing the release -> publish workflow_call chain. GitHub
+# needed that dance because a release cut with GITHUB_TOKEN raises no event;
+# GitLab has no such rule, so a tag pipeline is enough.
+#
+# arm64 is built under QEMU on this amd64 host, not on a native runner as
+# GitHub's free `ubuntu-24.04-arm` did. It is slow -- tens of minutes for the
+# npm install and Vite build through instruction translation -- which is
+# tolerable for a weekly tag and would not be for every push. That is why this
+# job is tag-only. If arm64 ever starts timing out, the fix is an arm64 runner,
+# not dropping the platform: TrueNAS and Unraid users pull it.
+# The version the image is built with, computed the way publish.yml did it:
+# scripts/version.mjs, which needs node and the full history. The build is
+# *told* the real form (IHASMAIL_VERSION, what About and /api/health report);
+# the Docker tag gets the same string with '+' turned into '-', because a tag
+# may not contain '+'. The first port of this job left the build arg out, so
+# a tag would have shipped an image reporting itself unversioned -- which is
+# exactly what version.test.ts calls looking wrong.
+version:
+  stage: build
+  image: node:26-bookworm-slim@sha256:582460f614631b59b824ac6020533b9bf339c7fdf3a6d7db31abb6b4065f0212 # 26-bookworm-slim
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git >/dev/null
+    # The build directory is reused between jobs, and the node job chowns it to
+    # the unprivileged `node` user so its tests can run. A later job running
+    # git as root then finds the checkout owned by somebody else, and git
+    # refuses with "detected dubious ownership" (exit 128). Whether it happens
+    # depends on which cached directory a job lands on, so it comes and goes.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - V="$(node scripts/version.mjs)"
+    - echo "VERSION=$V" > version.env
+    - echo "DOCKER_TAG=${V/+/-}" >> version.env
+    - cat version.env
+  artifacts:
+    reports:
+      dotenv: version.env
+  rules:
+    - if: $CI_COMMIT_TAG
+
+publish:
+  stage: publish
+  image: docker:28-cli@sha256:625d9431a9f54c5a2bc90f24f0e1c3d55b1349fd857dd85035f98c2c9acbdd4d # 28-cli
+  needs: [node, version]
+  variables:
+    DOCKER_BUILDKIT: "1"
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin "$CI_REGISTRY"
+    - docker run --privileged --rm tonistiigi/binfmt --install arm64
+    # The registry hands out push tokens from https://git.coffeylabs.org/jwt/auth,
+    # and buildx fetches them here, in the job, not in its builder. On ci-net
+    # that name is the gitlab container itself (172.30.0.2), which serves
+    # plain HTTP to the runner and nothing on 443, so every push failed at the
+    # last step with "connection refused". The login above works because the
+    # host's daemon does it, and the host resolves the name publicly. So, for
+    # this job only, point the name at its public address the same way. Only
+    # the token request uses it; layers go to the registry's own DNS-only name.
+    - |
+      public="$(nslookup "$CI_SERVER_HOST" 1.1.1.1 2>/dev/null | awk '/^Address: / && $2 !~ /:/ { print $2; exit }')"
+      if [ -z "$public" ]; then echo "Could not resolve $CI_SERVER_HOST publicly" >&2; exit 1; fi
+      echo "$public $CI_SERVER_HOST" >> /etc/hosts
+      echo "$CI_SERVER_HOST -> $public for the registry token"
+    - docker buildx create --use --name ci-builder --driver docker-container || docker buildx use ci-builder
+  script:
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --build-arg IHASMAIL_VERSION="$VERSION" \
+        --provenance=false --sbom=false \
+        --tag "$IMAGE:$DOCKER_TAG" \
+        --tag "$IMAGE:latest" \
+        --push .
+  after_script:
+    - docker logout "$CI_REGISTRY" || true
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ----------------------------------------------------------- weekly release --
+# Port of .github/workflows/release.yml: cut a release once a week, but only
+# when there is something in it. The decision is the workflow's, unchanged --
+# count the commits on main since the newest published release, and skip the
+# week if there are none or if the tag already exists (the version comes from
+# the commit, so an unchanged commit is an existing tag).
+#
+# It runs from a pipeline schedule (Mondays 09:17 UTC, the same odd minute as
+# before) that sets RELEASE_WEEKLY=1. GitLab keeps schedules on the project,
+# not in this file, so the schedule and this job only work as a pair. Run it by
+# hand with RELEASE_WEEKLY=1, adding DRY_RUN=1 to see the decision and stop.
+#
+# The release -- and with it the tag -- is created with RELEASE_TOKEN, a
+# project access token (protected, masked), not CI_JOB_TOKEN. A tag pushed that
+# way is an ordinary push, so it starts the tag pipeline, and the version and
+# publish jobs above build the image from it. That replaces release.yml's
+# direct call of publish.yml, which only existed because a tag created with
+# GITHUB_TOKEN raises no event. The token expires; when it does this job fails
+# at the API call, loudly, and a new one goes in the same variable.
+weekly-release:
+  stage: release
+  image: node:26-bookworm-slim@sha256:582460f614631b59b824ac6020533b9bf339c7fdf3a6d7db31abb6b4065f0212 # 26-bookworm-slim
+  # One at a time: two overlapping runs would race to create the same tag.
+  resource_group: weekly-release
+  variables:
+    GIT_DEPTH: "0"
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends git curl jq >/dev/null
+    # See the version job: same shared directory, same root, same refusal.
+    - git config --global --add safe.directory "$CI_PROJECT_DIR"
+  script:
+    - |
+      set -euo pipefail
+      # Internal address, as for everything else CI does: never through the proxy.
+      API="http://gitlab/api/v4/projects/${CI_PROJECT_ID}"
+      auth=(--header "PRIVATE-TOKEN: ${RELEASE_TOKEN}")
+      # The newest published release, or empty on a project that has never had
+      # one -- in which case everything counts as new.
+      previous="$(curl -fsS "${auth[@]}" "${API}/releases?order_by=released_at&sort=desc&per_page=1" | jq -r '.[0].tag_name // ""')"
+      # A release can outlive its tag. Falling back to the whole history
+      # over-counts, which cuts a release that was due anyway; under-counting
+      # would skip one that was.
+      # Tag lookups use show-ref, which matches an exact ref and nothing else.
+      # `rev-parse --verify refs/tags/<name>` does not: on the git in this image
+      # (2.39) a name ending in -g<hex> falls back to being read as
+      # git-describe output, resolves to that commit, and so "exists" whether
+      # or not the tag does. Every commit not merged through a pull request has
+      # a -g<hex> version, so that check reported every such week as already
+      # released. Newer git (and GitHub's runners) do not fall back, which is
+      # why release.yml never showed it.
+      if [ -n "$previous" ] && git show-ref --verify --quiet "refs/tags/${previous}"; then
+        count="$(git rev-list --count "${previous}..HEAD")"; range="${previous}..HEAD"
+      else
+        count="$(git rev-list --count HEAD)"; range="HEAD"
+      fi
+      version="$(node scripts/version.mjs)"
+      # A Docker tag may not contain '+', and neither should the git tag, so
+      # the two always agree about what to call a build.
+      tag="v${version/+/-}"
+      title="v${version%%+*}"
+      sha="$(git rev-parse HEAD)"
+      if [ "$count" -eq 0 ]; then
+        echo "Nothing to release: no commits since ${previous}."; exit 0
+      fi
+      if git show-ref --verify --quiet "refs/tags/${tag}"; then
+        echo "Nothing to release: tag ${tag} already exists."; exit 0
+      fi
+      echo "Releasing ${tag} -- ${count} commit(s) since ${previous:-the beginning}, at ${sha}."
+      if [ "${DRY_RUN:-0}" = "1" ]; then echo "DRY_RUN=1: stopping here."; exit 0; fi
+      # Notes bounded to what is new, from the first-parent history of main --
+      # one line per merge, which is what GitHub's generated notes listed.
+      notes="$(git log --first-parent --format='- %s' "$range")"
+      jq -n --arg tag "$tag" --arg ref "$sha" --arg name "$title" \
+            --arg desc "$(printf '%s commit(s) since %s.\n\n%s' "$count" "${previous:-the beginning}" "$notes")" \
+            '{tag_name:$tag, ref:$ref, name:$name, description:$desc}' > release.json
+      curl -fsS "${auth[@]}" --header "Content-Type: application/json" \
+           --data @release.json "${API}/releases" | jq -r '"created release " + .tag_name'
+  rules:
+    - if: $RELEASE_WEEKLY == "1" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
