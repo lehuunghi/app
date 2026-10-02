@@ -3,7 +3,7 @@
   "appName": "Webmail",
   "webDir": "mobile-dist",
   "backgroundColor": "#f6f8fc",
-  "loggingBehavior": "debug",
+  "loggingBehavior": "none",
   "server": { "androidScheme": "https" },
   "android": { "allowMixedContent": false },
   "ios": { "contentInset": "never" },

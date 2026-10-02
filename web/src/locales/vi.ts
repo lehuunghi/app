@@ -9,12 +9,6 @@ export const catalog: Catalog = {
     "Try again": "Thử lại",
     "Stay signed in, and keep settings and recent addresses on this device.": "Duy trì đăng nhập và lưu cài đặt cùng các địa chỉ gần đây trên thiết bị này.",
     "Sign out after 5 minutes of inactivity and clear local account data. Leave this unticked on a shared device.": "Đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản trên thiết bị. Không chọn mục này nếu dùng chung thiết bị.",
-    "Connect to your Webmail server": "Kết nối với máy chủ Webmail của bạn",
-    "Webmail server address": "Địa chỉ máy chủ Webmail",
-    "Use the same website address as on your computer. Your account is entered on the next screen.": "Dùng cùng địa chỉ website Webmail như trên máy tính. Bạn sẽ nhập tài khoản ở màn hình tiếp theo.",
-    "Cannot connect. Check the HTTPS address of your Webmail server.": "Không thể kết nối. Hãy kiểm tra địa chỉ HTTPS của máy chủ Webmail.",
-    "Connecting…": "Đang kết nối…",
-    "Change Webmail server": "Đổi máy chủ Webmail",
     "Could not save or share the file. Please try again.": "Không thể lưu hoặc chia sẻ tệp. Vui lòng thử lại.",
     "Open or save PDF": "Mở hoặc lưu tệp PDF",
 

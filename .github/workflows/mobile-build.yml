@@ -56,3 +56,35 @@ jobs:
           name: webmail-ios-simulator
           path: webmail-ios-simulator.zip
           if-no-files-found: error
+
+  android-smoke:
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: webmail-android-debug
+          path: dist
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          script: node scripts/android-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-app-smoke-test
+          path: android-smoke
+          if-no-files-found: warn

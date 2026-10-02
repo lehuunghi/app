@@ -1,6 +1,6 @@
 import { App as NativeApp } from "@capacitor/app";
 import { Capacitor, CapacitorCookies, type PluginListenerHandle } from "@capacitor/core";
-import { isNativeApp, mobileServerUrl, blockNativeSession, discardLegacyMobileServer } from "./config";
+import { isNativeApp, mobileApiServerUrl, blockNativeSession, discardLegacyMobileServer } from "./config";
 
 let active = true;
 export function nativeAppIsActive(): boolean { return active; }
@@ -8,7 +8,7 @@ export function nativeAppIsActive(): boolean { return active; }
 export async function clearNativeSession(): Promise<void> {
   if (!isNativeApp()) return;
   blockNativeSession();
-  const url = mobileServerUrl();
+  const url = mobileApiServerUrl();
   try {
     if (url) await CapacitorCookies.clearCookies({ url });
   } finally {

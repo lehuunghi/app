@@ -4,7 +4,7 @@
 
 Giao diện React được build vào `mobile-dist` và đóng gói vào ứng dụng bằng Capacitor. App luôn dùng `https://jmail.vn` và mở thẳng màn hình đăng nhập; không có ô nhập hoặc nút đổi máy chủ. Cấu hình máy chủ đã lưu trong các bản cũ bị bỏ qua. Khi nâng cấp từ máy chủ khác, app xóa dữ liệu tài khoản cục bộ và yêu cầu đăng nhập lại.
 
-Đây là địa chỉ của máy chủ Webmail Node.js, không phải địa chỉ trực tiếp của Stalwart. Các API được gọi bằng HTTP native và sử dụng cookie phiên đăng nhập của máy chủ. Tài khoản và dữ liệu thư vẫn nằm trên Stalwart; đọc thư hoặc đánh dấu đã đọc trên một thiết bị sẽ được các thiết bị khác đồng bộ lại.
+`jmail.vn` là máy chủ thư và chuyển website sang `https://webmail.jmail.vn`. App tự gọi các API Webmail Node.js ở `https://webmail.jmail.vn`; người dùng chỉ nhập tài khoản và mật khẩu. Các API được gọi bằng HTTP native và sử dụng cookie phiên đăng nhập của máy chủ. Tài khoản và dữ liệu thư vẫn nằm trên Stalwart; đọc thư hoặc đánh dấu đã đọc trên một thiết bị sẽ được các thiết bị khác đồng bộ lại.
 
 Máy chủ cố định dùng HTTPS với chứng chỉ hợp lệ. Không có mật khẩu mail hay `APP_SECRET` được nhúng vào ứng dụng. Không dùng `server.url` của Capacitor để tải toàn bộ website từ xa; cấu hình hiện tại dùng giao diện đã đóng gói.
 
@@ -12,11 +12,11 @@ Máy chủ cố định dùng HTTPS với chứng chỉ hợp lệ. Không có m
 
 1. Có một máy chủ Webmail đang hoạt động, dùng cùng Stalwart với bản web.
 2. Có tên miền và chứng chỉ HTTPS hợp lệ, ví dụ `https://jmail.vn`.
-3. Kiểm tra `https://jmail.vn/api/health` có phản hồi và `/api/config` trả JSON có `appName`.
+3. Kiểm tra `https://webmail.jmail.vn/api/health` có phản hồi và `/api/config` trả JSON có `appName`.
 4. Nếu dùng reverse proxy, chuyển tiếp nguyên đường dẫn tới Node.js. Nếu chạy dưới `/webmail`, build và chạy máy chủ web với cùng `BASE_PATH=/webmail`.
 5. Giữ các bảo vệ CSRF và cookie của website. Ứng dụng gửi header giao thức hiện có và dùng HTTP native; không cần thêm CORS `*`.
 
-Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Đường dẫn API được cố định vào `https://jmail.vn`. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
+Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Dịch vụ thư mặc định là `https://jmail.vn`; API được cố định vào `https://webmail.jmail.vn`, đúng địa chỉ website do máy chủ công bố. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
 
 Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nhập lâu hơn và lưu cài đặt, địa chỉ gần đây trên thiết bị. Nếu không chọn, app đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản cục bộ.
 
@@ -159,7 +159,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 
 ## 8. Kiểm thử trên điện thoại trước phát hành
 
-1. App mở thẳng màn hình đăng nhập, không có ô nhập/nút đổi máy chủ; tất cả API dùng `https://jmail.vn`.
+1. App mở thẳng màn hình đăng nhập, không có ô nhập/nút đổi máy chủ; dịch vụ mặc định là `https://jmail.vn`, API dùng `https://webmail.jmail.vn`.
 2. Đăng nhập đúng/sai, đăng xuất, mở lại app và nâng cấp từ bản cũ đã lưu máy chủ khác. Thử đăng xuất khi mất mạng rồi đóng/mở app: app phải yêu cầu đăng nhập lại dù cookie cũ còn trên thiết bị.
 3. Đọc/gửi thư trên tài khoản thử nghiệm; kiểm tra trạng thái đã đọc trên web và điện thoại.
 4. Tải ảnh CID và ảnh bên ngoài theo chính sách cho phép; thử tắt tải ảnh.

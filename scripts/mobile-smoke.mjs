@@ -1,44 +1,38 @@
 import { writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 const server = "https://jmail.vn";
+const apiServer = "https://webmail.jmail.vn";
 const results = [];
-async function check(path) {
+async function check(url, init = {}) {
   try {
-    const response = await fetch(path.startsWith("https://webmail.jmail.vn/") ? path : server + path, {
-      headers: { accept: "application/json", "x-requested-with": "ihasmail" },
+    const response = await fetch(url, {
+      ...init, headers: { accept: "application/json", "content-type": "application/json", "x-requested-with": "ihasmail" },
       redirect: "manual", signal: AbortSignal.timeout(15000),
     });
-    const type = response.headers.get("content-type") ?? "";
-    const text = await response.text();
     let data;
-    try { data = JSON.parse(text); } catch { /* record non-JSON endpoints */ }
-    const result = { path, status: response.status, type, json: data !== undefined,
-      location: response.headers.get("location"), authenticate: response.headers.get("www-authenticate") };
-    if (path === "/api/config") result.appName = data?.appName;
-    if (path === "/api/health") result.healthy = data?.ok === true;
-    if (data?.error) result.error = data.error;
-    if (path === "/.well-known/jmap") result.capabilities = Object.keys(data?.capabilities ?? {});
-    if (!data) result.title = /<title[^>]*>([^<]*)<\/title>/i.exec(text)?.[1];
-    results.push(result);
+    try { data = await response.json(); } catch { /* redirects can have no body */ }
+    results.push({ url, method: init.method ?? "GET", status: response.status,
+      location: response.headers.get("location"), appName: data?.appName, healthy: data?.ok, error: data?.error });
     return { response, data };
   } catch (error) {
-    results.push({ path, error: error.message, cause: error.cause?.code });
+    results.push({ url, error: error.message, cause: error.cause?.code });
     return null;
   }
 }
-const config = await check("/api/config");
-const health = await check("/api/health");
-const session = await check("/api/auth/session");
-await check("/.well-known/jmap");
-await check("/jmap/session");
-await check("/jmap/");
-await check("/");
-await check("https://webmail.jmail.vn/api/config");
-await check("https://webmail.jmail.vn/api/health");
-await check("https://webmail.jmail.vn/api/auth/session");
-const compatible = config?.response.status === 200 && typeof config.data?.appName === "string"
-  && health?.data?.ok === true && session?.response.status === 401;
-const report = { server, checkedAt: new Date().toISOString(), compatible, results,
+const root = await check(server);
+const config = await check(apiServer + "/api/config");
+const health = await check(apiServer + "/api/health");
+const session = await check(apiServer + "/api/auth/session");
+const login = await check(apiServer + "/api/auth/login", {
+  method: "POST", body: JSON.stringify({ username: "codex-app-smoke-" + randomUUID() + "@jmail.vn",
+    password: randomUUID(), remember: false }),
+});
+const compatible = root?.response.headers.get("location")?.replace(/\/$/, "") === apiServer
+  && config?.response.status === 200 && typeof config.data?.appName === "string"
+  && health?.data?.ok === true && session?.response.status === 401
+  && login?.response.status === 401 && login.data?.error === "invalid_credentials";
+const report = { server, apiServer, checkedAt: new Date().toISOString(), compatible, results,
   authenticatedMailTest: "Not run: no test account was supplied." };
 writeFileSync("mobile-smoke-report.json", JSON.stringify(report, null, 2) + "\n");
 console.log(JSON.stringify(report, null, 2));

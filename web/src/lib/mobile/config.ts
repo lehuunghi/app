@@ -9,6 +9,12 @@ export function isNativeApp(): boolean {
 
 /** This app always connects to the same deployment, including after upgrades. */
 export const MOBILE_SERVER_URL = "https://jmail.vn";
+// jmail.vn redirects its website here; the Node API is served on this origin.
+export const MOBILE_API_URL = "https://webmail.jmail.vn";
+
+export function mobileApiServerUrl(): string {
+  return MOBILE_API_URL;
+}
 
 export function mobileServerUrl(): string {
   return MOBILE_SERVER_URL;
@@ -19,7 +25,7 @@ export function discardLegacyMobileServer(): boolean {
   try {
     const previous = localStorage.getItem(SERVER_KEY);
     localStorage.removeItem(SERVER_KEY);
-    return Boolean(previous && previous.replace(/\/+$/, "") !== MOBILE_SERVER_URL);
+    return Boolean(previous && ![MOBILE_SERVER_URL, MOBILE_API_URL].includes(previous.replace(/\/+$/, "")));
   } catch {
     return false;
   }
@@ -47,13 +53,13 @@ export function allowNativeSession(): void {
 
 export function nativeApiUrl(path: string): string | null {
   if (!isNativeApp() || !path.startsWith("/api/")) return null;
-  return MOBILE_SERVER_URL + path;
+  return MOBILE_API_URL + path;
 }
 
 /** Resource checks are scoped to this app's API, not merely to the host. */
 export function isNativeApiResource(input: string): boolean {
   if (!isNativeApp()) return false;
-  const server = MOBILE_SERVER_URL;
+  const server = MOBILE_API_URL;
   try {
     const url = new URL(input);
     return !url.username && !url.password && !url.hash && url.href.startsWith(server + "/api/");

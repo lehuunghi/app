@@ -5,7 +5,7 @@ const native = vi.hoisted(() => ({
 }));
 vi.mock("@capacitor/app", () => ({ App: { getState: native.state, addListener: native.listen } }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => native.platform }, CapacitorCookies: { clearCookies: native.clearCookies } }));
-vi.mock("../config", () => ({ isNativeApp: () => true, mobileServerUrl: () => "https://jmail.vn", blockNativeSession: native.block, discardLegacyMobileServer: native.legacy }));
+vi.mock("../config", () => ({ isNativeApp: () => true, mobileApiServerUrl: () => "https://webmail.jmail.vn", blockNativeSession: native.block, discardLegacyMobileServer: native.legacy }));
 vi.mock("@/lib/storage", () => ({ clearAllData: native.clearData, setDeviceTrusted: native.trust }));
 vi.mock("../files", () => ({ clearNativeShareCache: native.clearCache }));
 
@@ -49,6 +49,7 @@ describe("native startup and sign-out recovery", () => {
     const runtime = await import("../runtime");
     await expect(runtime.clearNativeSession()).rejects.toThrow("cookie bridge failed");
     expect(native.block).toHaveBeenCalledTimes(1);
+    expect(native.clearCookies).toHaveBeenCalledWith({ url: "https://webmail.jmail.vn" });
     expect(native.clearCache).toHaveBeenCalledTimes(1);
   });
 
