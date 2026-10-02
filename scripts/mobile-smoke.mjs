@@ -4,7 +4,7 @@ const server = "https://jmail.vn";
 const results = [];
 async function check(path) {
   try {
-    const response = await fetch(server + path, {
+    const response = await fetch(path.startsWith("https://webmail.jmail.vn/") ? path : server + path, {
       headers: { accept: "application/json", "x-requested-with": "ihasmail" },
       redirect: "manual", signal: AbortSignal.timeout(15000),
     });
@@ -33,6 +33,9 @@ await check("/.well-known/jmap");
 await check("/jmap/session");
 await check("/jmap/");
 await check("/");
+await check("https://webmail.jmail.vn/api/config");
+await check("https://webmail.jmail.vn/api/health");
+await check("https://webmail.jmail.vn/api/auth/session");
 const compatible = config?.response.status === 200 && typeof config.data?.appName === "string"
   && health?.data?.ok === true && session?.response.status === 401;
 const report = { server, checkedAt: new Date().toISOString(), compatible, results,
