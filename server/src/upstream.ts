@@ -111,7 +111,7 @@ export function advertisedOrigin(session: Pick<UpstreamSession, "apiUrl" | "base
  */
 async function detectAdminUrl(authorization: string, session: UpstreamSession): Promise<string | null> {
   const origin = advertisedOrigin(session);
-  const accountId = session.primaryAccounts?.[STALWART_CAP];
+  const accountId = session.primaryAccounts?.[registryCapability(session) ?? STALWART_CAP];
   if (!origin) return null;
   let prefix: string | null = DEFAULT_ADMIN_PREFIX;
   if (accountId) {
@@ -120,7 +120,7 @@ async function detectAdminUrl(authorization: string, session: UpstreamSession): 
         method: "POST",
         headers: { authorization, "content-type": "application/json", accept: "application/json" },
         body: JSON.stringify({
-          using: [JMAP_CORE, STALWART_CAP],
+          using: [JMAP_CORE, registryCapability(session) ?? STALWART_CAP],
           methodCalls: [
             ["x:Application/query", { accountId }, "q"],
             ["x:Application/get", { accountId, "#ids": { resultOf: "q", name: "x:Application/query", path: "/ids" }, properties: ["enabled", "urlPrefix"] }, "g"],
@@ -179,6 +179,15 @@ export function forgetUpstreamSession(sessionId: string): void {
 /* ------------------------------------------------------------------ */
 
 const STALWART_CAP = "urn:stalwart:jmap";
+const INBUXA_CAP = "urn:inbuxa:jmap:registry";
+export function registryCapability(session: Pick<UpstreamSession, "capabilities" | "accounts" | "primaryAccounts"> | undefined): string | null {
+  if (!session) return null;
+  for (const cap of [INBUXA_CAP, STALWART_CAP]) {
+    if (cap in (session.primaryAccounts ?? {}) || cap in (session.capabilities ?? {}) ||
+      Object.values(session.accounts ?? {}).some((a) => cap in ((a as { accountCapabilities?: Record<string, unknown> } | null)?.accountCapabilities ?? {}))) return cap;
+  }
+  return null;
+}
 const JMAP_CORE = "urn:ietf:params:jmap:core";
 
 /**
@@ -200,13 +209,7 @@ const JMAP_CORE = "urn:ietf:params:jmap:core";
  * rather than merely misroute them.
  */
 export function hasStalwartRegistry(session: Pick<UpstreamSession, "capabilities" | "accounts" | "primaryAccounts"> | undefined): boolean {
-  if (!session) return false;
-  if (session.primaryAccounts && STALWART_CAP in session.primaryAccounts) return true;
-  for (const account of Object.values(session.accounts ?? {})) {
-    const caps = (account as { accountCapabilities?: Record<string, unknown> } | null)?.accountCapabilities;
-    if (caps && STALWART_CAP in caps) return true;
-  }
-  return Boolean(session.capabilities && STALWART_CAP in session.capabilities);
+  return registryCapability(session) !== null;
 }
 
 export interface AccountInfo {
@@ -308,7 +311,7 @@ async function fetchAccountInfo(authorization: string, session: UpstreamSession)
   // but a session we cannot read capabilities from is not one to ask.
   if (!session.capabilities || !hasStalwartRegistry(session)) return EMPTY_INFO;
   const accountId =
-    session.primaryAccounts?.[STALWART_CAP] ??
+    session.primaryAccounts?.[registryCapability(session) ?? STALWART_CAP] ??
     session.primaryAccounts?.["urn:ietf:params:jmap:mail"] ??
     Object.keys(session.accounts ?? {})[0];
   if (!accountId) return EMPTY_INFO;
@@ -318,7 +321,7 @@ async function fetchAccountInfo(authorization: string, session: UpstreamSession)
     method: "POST",
     headers: { authorization, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
-      using: [JMAP_CORE, STALWART_CAP],
+      using: [JMAP_CORE, registryCapability(session) ?? STALWART_CAP],
       methodCalls: [
         ["x:AccountSettings/get", { accountId, ids: ["singleton"], properties: ["locale"] }, "s"],
         ["x:Account/get", { accountId, ids: [accountId], properties: ["locale"] }, "a"],

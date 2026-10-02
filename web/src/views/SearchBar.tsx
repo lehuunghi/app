@@ -27,6 +27,7 @@ export function SearchBar() {
 
   const submit = (e?: FormEvent) => {
     e?.preventDefault();
+    if (adv) { applyAdvanced(); return; }
     const query = q.trim();
     if (!query) return;
     setAdv(false);
@@ -56,18 +57,18 @@ export function SearchBar() {
     <form className="searchbar" role="search" onSubmit={submit}>
       <div className="search-input">
         <Search size={18} className="muted" />
-        <input ref={inputRef} type="search" placeholder={t("Search mail  (from:, to:, subject:, has:attachment, is:unread, in:, before:, after:)")} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Search mail")} enterKeyHint="search" />
+        <input ref={inputRef} type="search" placeholder={t("Search mail")} value={q} onChange={(e) => setQ(e.target.value)} aria-label={t("Search mail")} enterKeyHint="search" />
         {q && (
           <button type="button" className="icon-btn sm" aria-label={t("Clear")} onClick={() => { setQ(""); if (location.startsWith("/search")) navigate("/mail"); }}>
             <X size={16} />
           </button>
         )}
-        <button type="button" className={`icon-btn sm ${adv ? "active" : ""}`} aria-label={t("Advanced search")} title={t("Advanced search")} onClick={() => setAdv((v) => !v)}>
+        <button type="button" className={`icon-btn sm ${adv ? "active" : ""}`} aria-label={t("Advanced search")} aria-expanded={adv} aria-controls="advanced-search-panel" title={t("Advanced search")} onClick={() => setAdv((v) => !v)}>
           <SlidersHorizontal size={16} />
         </button>
       </div>
       {adv && (
-        <div className="search-panel">
+        <div className="search-panel" id="advanced-search-panel">
           <div className="grid">
             <label className="field"><span className="label">{t("From")}</span><input className="input sm" value={advFields.from} onChange={(e) => setAdvFields({ ...advFields, from: e.target.value })} /></label>
             <label className="field"><span className="label">{t("To")}</span><input className="input sm" value={advFields.to} onChange={(e) => setAdvFields({ ...advFields, to: e.target.value })} /></label>
@@ -83,14 +84,14 @@ export function SearchBar() {
               <div className="row"><DateField aria-label={t("After")} value={advFields.after} onChange={(v) => setAdvFields({ ...advFields, after: v })} /><span className="muted">{t("to")}</span><DateField aria-label={t("Before")} value={advFields.before} onChange={(v) => setAdvFields({ ...advFields, before: v })} /></div>
             </div>
           </div>
-          <div className="row" style={{ justifyContent: "space-between", marginTop: 4 }}>
-            <div className="row gap-16">
+          <div className="search-panel-footer">
+            <div className="search-panel-options">
               <label className="check"><input type="checkbox" checked={advFields.hasAttachment} onChange={(e) => setAdvFields({ ...advFields, hasAttachment: e.target.checked })} />  {t("Has attachment")}</label>
               <label className="check"><input type="checkbox" checked={advFields.unread} onChange={(e) => setAdvFields({ ...advFields, unread: e.target.checked })} />  {t("Unread only")}</label>
             </div>
-            <div className="row">
+            <div className="row search-panel-actions">
               <button type="button" className="btn btn-ghost" onClick={() => setAdv(false)}>{t("Cancel")}</button>
-              <button type="button" className="btn btn-primary" onClick={applyAdvanced}>{t("Search")}</button>
+              <button type="submit" className="btn btn-primary">{t("Search")}</button>
             </div>
           </div>
         </div>

@@ -40,3 +40,9 @@ describe("buildFilter", () => {
     expect(f).toEqual({ notKeyword: "$seen" });
   });
 });
+
+it("All mail excludes junk and trash while anywhere includes them", () => {
+  const folders = { inbox: mb("inbox", "Inbox", "inbox"), junk: mb("junk", "Junk", "junk"), trash: mb("trash", "Trash", "trash") };
+  expect(buildFilter(parseQuery("in:all"), folders)).toEqual({ operator: "AND", conditions: [{}, { operator: "NOT", conditions: [{ inMailbox: "junk" }, { inMailbox: "trash" }] }] });
+  expect(buildFilter(parseQuery("in:anywhere"), folders)).toEqual({});
+});

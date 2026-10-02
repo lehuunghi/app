@@ -463,7 +463,7 @@ self.addEventListener("push", (event) => {
     const windows = await self.clients.matchAll({ type: "window" });
     if (windows.some((w) => w.focused && w.visibilityState === "visible")) return;
     const facts = await readFacts();
-    const strings = facts?.strings ?? { newMail: "New mail", newMessage: "New message", noSubject: "(no subject)" };
+    const strings = facts?.strings ?? { newMail: "Thư mới", newMessage: "Thư mới", noSubject: "(không có tiêu đề)" };
     /*
      * Mark the app icon, without claiming a number.
      *

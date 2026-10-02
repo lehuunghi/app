@@ -7,7 +7,7 @@ import { getLists, queryLists, type DirectoryList } from "@/lib/admin/adminLists
 import { plural, t } from "@/lib/i18n";
 import { Empty, Spinner } from "@/ui/misc";
 import { useSession } from "@/store/session";
-import { STALWART_CAP } from "@/jmap/client";
+import { STALWART_CAP, INBUXA_CAP } from "@/jmap/client";
 import { usePermissions } from "./usePermissions";
 import type { DirectoryContext } from "./directoryContext";
 import { ListSheet } from "./ListSheet";
@@ -86,7 +86,7 @@ export function ListsAdmin({ selectedId }: { selectedId?: string }) {
       const domain = l.emailAddress?.split("@")[1];
       if (domain && !seen.has(l.domainId)) seen.set(l.domainId, { id: l.domainId, name: domain });
     }
-    const ownId = session?.primaryAccounts?.[STALWART_CAP];
+    const ownId = session?.primaryAccounts?.[INBUXA_CAP] ?? session?.primaryAccounts?.[STALWART_CAP];
     return {
       domains: (serverDomains ?? [...seen.values()]).slice().sort((x, y) => x.name.localeCompare(y.name)),
       roles: null,

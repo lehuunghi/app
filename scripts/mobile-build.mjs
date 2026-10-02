@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Mobile always serves its bundled assets at its local origin. The API's
-// remote API is fixed at https://jmail.vn in mobile/config.ts.
+// origin is https://webmail.jmail.vn, advertised by https://jmail.vn.
 const env = { ...process.env, BASE_PATH: "", VITE_MOBILE_BUILD: "true" };
 const run = (args) => {
   const r = spawnSync(process.execPath, args, { cwd: root, env, stdio: "inherit" });

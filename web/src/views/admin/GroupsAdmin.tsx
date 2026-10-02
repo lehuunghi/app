@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Plus, Search, UsersRound } from "lucide-react";
 import { useSession } from "@/store/session";
-import { STALWART_CAP } from "@/jmap/client";
+import { STALWART_CAP, INBUXA_CAP } from "@/jmap/client";
 import { can, type RoleDef } from "@/lib/admin/adminAccess";
 import { describeDirectoryError, listDomains, listRoles, type DirectoryDomain } from "@/lib/admin/adminDirectory";
 import { countMembers, getGroups, queryGroups, type DirectoryGroup } from "@/lib/admin/adminGroups";
@@ -92,7 +92,7 @@ export function GroupsAdmin({ selectedId }: { selectedId?: string }) {
       const domain = g.emailAddress?.split("@")[1];
       if (domain && !seen.has(g.domainId)) seen.set(g.domainId, { id: g.domainId, name: domain });
     }
-    const ownId = session?.primaryAccounts?.[STALWART_CAP];
+    const ownId = session?.primaryAccounts?.[INBUXA_CAP] ?? session?.primaryAccounts?.[STALWART_CAP];
     return {
       domains: (serverDomains ?? [...seen.values()]).slice().sort((x, y) => x.name.localeCompare(y.name)),
       roles,

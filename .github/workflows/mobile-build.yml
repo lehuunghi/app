@@ -98,3 +98,48 @@ jobs:
           name: android-app-smoke-test
           path: android-smoke
           if-no-files-found: warn
+
+  ui-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run mobile:build
+      - run: npm run build -w server
+      - run: npm install --prefix .ui-tools --no-save --package-lock=false playwright
+      - run: node .ui-tools/node_modules/playwright/cli.js install --with-deps chromium
+      - run: node scripts/ui-smoke.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: responsive-ui-smoke-test
+          path: ui-smoke
+          if-no-files-found: warn
+
+  publish:
+    needs: [android-smoke, ios, ui-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/download-artifact@v4
+        with:
+          name: webmail-android-debug
+          path: release-builds/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: webmail-ios-simulator
+          path: release-builds/ios
+      - run: node scripts/publish-mobile.mjs
+        env:
+          GH_TOKEN: ${{ github.token }}

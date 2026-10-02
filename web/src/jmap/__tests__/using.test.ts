@@ -84,3 +84,12 @@ describe("request `using`", () => {
     expect(using()).toContain(CAP.core);
   });
 });
+
+it.each(["urn:stalwart:jmap", "urn:inbuxa:jmap:registry"])("uses the advertised registry capability %s", async (cap) => {
+  client.session = session(ALL);
+  client.session.primaryAccounts = { [cap]: "a1" };
+  const using = captureUsing();
+  await client.call("x:Account/get", { accountId: "a1", ids: null });
+  expect(using()).toContain(cap);
+  expect(using()).not.toContain(cap === "urn:stalwart:jmap" ? "urn:inbuxa:jmap:registry" : "urn:stalwart:jmap");
+});

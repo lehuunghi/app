@@ -141,7 +141,7 @@ export function parseQuery(q: string): ParsedQuery {
 }
 
 export function buildFilter(p: ParsedQuery, mailboxes: Record<string, Mailbox>, currentMailbox?: string | null): EmailFilter {
-  const conds: EmailFilterCondition[] = [];
+  const conds: EmailFilter[] = [];
   const c: EmailFilterCondition = {};
   if (p.text.length) c.text = p.text.join(" ");
   if (p.from) c.from = p.from;
@@ -163,6 +163,10 @@ export function buildFilter(p: ParsedQuery, mailboxes: Record<string, Mailbox>, 
     c.inMailbox = currentMailbox;
   }
   conds.push(c);
+  if (p.in === "all") {
+    const excluded = Object.values(mailboxes).filter((m) => m.role === "junk" || m.role === "trash").map((m) => m.id);
+    if (excluded.length) conds.push({ operator: "NOT", conditions: excluded.map((inMailbox) => ({ inMailbox })) });
+  }
   if (p.starred) conds.push({ hasKeyword: "$flagged" });
   for (const l of p.label ?? []) conds.push({ hasKeyword: l.startsWith("$") ? l : l });
   for (const l of p.notLabel ?? []) conds.push({ notKeyword: l });

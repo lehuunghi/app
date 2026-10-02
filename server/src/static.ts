@@ -5,6 +5,8 @@ import { extname, join, normalize, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
 import type { Context, Handler } from "hono";
 import { stripBasePath } from "../../scripts/basePath.mjs";
+import { config } from "./config.js";
+import { logoCspSource } from "./logo.js";
 
 /*
  * Files that must not be served from anybody's cache, the way index.html is
@@ -65,7 +67,7 @@ export const APP_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  `img-src 'self' data: blob:${config.logoUrl ? ` ${logoCspSource(config.logoUrl)}` : ""}`,
   "font-src 'self' data:",
   "connect-src 'self'",
   "media-src 'self' blob:",

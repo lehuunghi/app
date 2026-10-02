@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { Link, useLocation } from "wouter";
-import { ArrowLeft, Bell, EyeOff, Filter, Folder, Info, Keyboard, LayoutTemplate, Palette, PenLine, Plane, Settings as SettingsIcon, ShieldCheck, Tag, Users, Calendar } from "lucide-react";
+import { Link, Redirect, useLocation } from "wouter";
+import { ArrowLeft, Bell, EyeOff, Filter, Folder, Keyboard, LayoutTemplate, Palette, PenLine, Plane, Settings as SettingsIcon, ShieldCheck, Tag, Users, Calendar } from "lucide-react";
 import { Spinner } from "@/ui/misc";
 import { GeneralSettings } from "./GeneralSettings";
 import { AppearanceSettings } from "./AppearanceSettings";
@@ -11,7 +11,6 @@ import { TemplatesSettings } from "./TemplatesSettings";
 import { NotificationsSettings } from "./NotificationsSettings";
 import { PrivacySettings } from "./PrivacySettings";
 import { SecuritySettings } from "./SecuritySettings";
-import { AboutSettings } from "./AboutSettings";
 import { ShortcutsSettings } from "./ShortcutsSettings";
 import { CalendarSettings } from "./CalendarSettings";
 import { t } from "@/lib/i18n";
@@ -33,11 +32,11 @@ const SECTIONS: Array<{ id: string; label: string; icon: ReactNode; el: ReactNod
   { id: "privacy", label: "Privacy & safety", icon: <EyeOff size={18} />, el: <PrivacySettings /> },
   { id: "security", label: "Security & sessions", icon: <ShieldCheck size={18} />, el: <SecuritySettings /> },
   { id: "shortcuts", label: "Keyboard shortcuts", icon: <Keyboard size={18} />, el: <ShortcutsSettings /> },
-  { id: "about", label: "About", icon: <Info size={18} />, el: <AboutSettings /> },
 ];
 
 export function SettingsView({ section }: { section?: string }) {
   const [, navigate] = useLocation();
+  if (section === "about") return <Redirect to="/settings/general" />;
   const current = SECTIONS.find((s) => s.id === section);
   return (
     <div className={`settings-layout ${section ? "section" : "root"}`}>

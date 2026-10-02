@@ -14,6 +14,7 @@ export const catalog: Catalog = {
 
     "Ask again": "Yêu cầu lại",
     "Make {app} the default mail app": "Đặt {app} làm ứng dụng thư mặc định",
+    "Use your account to access your workspace.": "Sử dụng tài khoản của bạn để truy cập không gian làm việc.",
     "Stay signed in, and keep settings and recent addresses on this computer.": "Duy trì đăng nhập và lưu cài đặt cùng các địa chỉ gần đây trên máy tính này.",
     "Signed out after 5 minutes of inactivity, and nothing is kept on this computer. Leave this unticked on a shared or public one.": "Tự đăng xuất sau 5 phút không hoạt động và không lưu dữ liệu trên máy tính này. Không chọn trên máy dùng chung hoặc công cộng.",
     "Signing in…": "Đang đăng nhập…",
@@ -986,8 +987,8 @@ export const catalog: Catalog = {
     "Advanced: manage raw Sieve scripts. Only one script can be active at a time.": "Nâng cao: quản lý tập lệnh Sieve thô. Chỉ một tập lệnh có thể hoạt động tại một thời điểm.",
     "Only part of your filter script arrived.": "Chỉ nhận được một phần tập lệnh lọc của bạn.",
     "Your active script “{name}” was written by hand.": "Tập lệnh đang hoạt động “{name}” được viết thủ công.",
-    "Another script (“{name}”) is active. Saving rules here will activate the “Webmail” script instead.": "Tập lệnh khác (“{name}”) đang hoạt động. Lưu quy tắc tại đây sẽ kích hoạt tập lệnh “Webmail” thay thế.",
-    "“{name}” will be deactivated (not deleted) and a new “Webmail” script will take over.": "“{name}” sẽ bị vô hiệu hóa (không bị xóa) và tập lệnh “Webmail” mới sẽ thay thế.",
+    "Another script (“{name}”) is active. Saving rules here will activate the app’s rules script instead.": "Tập lệnh khác (“{name}”) đang hoạt động. Lưu quy tắc tại đây sẽ kích hoạt tập lệnh quy tắc thay thế.",
+    "“{name}” will be deactivated (not deleted) and a new rules script will take over.": "“{name}” sẽ bị vô hiệu hóa (không bị xóa) và tập lệnh quy tắc mới sẽ thay thế.",
     "Sieve filtering is not available for this account.": "Lọc Sieve không khả dụng cho tài khoản này.",
     "Sieve filtering is not enabled for this account.": "Lọc Sieve chưa được bật cho tài khoản này.",
     "Vacation responses are not available for this account.": "Trả lời khi vắng mặt không khả dụng cho tài khoản này.",

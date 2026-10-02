@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { AlertOctagon, Archive, ArrowDown, ArrowUp, ChevronDown, ChevronLeft, Clock, ChevronRight, File, Folder, FolderPlus, Inbox, Mail, MoreVertical, Palette, Send, Star, Tag, Trash2, Plus, Pencil, Eye, EyeOff, CheckCheck, Eraser, Share2, X, FolderInput } from "lucide-react";
 import { useMail } from "@/store/mail";
 import { canEmpty, confirmAndEmpty, emptyLabel } from "@/lib/mailbox/emptyFolder";
@@ -41,6 +41,7 @@ export function MailboxTree() {
   const mailboxes = useMail((s) => s.mailboxes);
   const loaded = useMail((s) => s.mailboxesLoaded || s.mailboxesCached);
   const [location] = useLocation();
+  const search = useSearch();
   const currentId = location.startsWith("/mail/") ? location.split("/")[2] : undefined;
   const showHidden = useSettings((s) => s.settings.showHiddenFolders);
   const labels = useSettings((s) => s.settings.labels);
@@ -166,6 +167,52 @@ export function MailboxTree() {
       toast.error((err as Error).message);
     }
   };
+  const createLabel = async () => {
+    const name = await promptDialog({ title: t("New label"), placeholder: t("Label name") });
+    if (!name?.trim()) return;
+    const keyword = name.trim().toLowerCase().replace(/[^a-z0-9_.-]+/g, "_").replace(/^_+|_+$/g, "") || `label${Date.now()}`;
+    if (labels.some((l) => l.keyword === keyword)) return;
+    useSettings.getState().update({ labels: [...labels, { keyword, name: name.trim(), color: CALENDAR_COLORS[labels.length % CALENDAR_COLORS.length]! }] });
+  };
+
+  const baseRows = isMobile ? childrenOf(null).map((m) => ({ m, depth: 0, hasChildren: childrenOf(m.id).length > 0, open: false, hiddenUnread: subtreeUnread(m.id), childUnread: subtreeUnread(m.id) })) : rows;
+  const primaryRoles = ["inbox", "sent", "scheduled", "junk"];
+  const primaryRows = baseRows.filter(({m, depth}) => depth === 0 && (primaryRoles.includes(m.role ?? "") || isScheduledMailbox(m)))
+    .sort((a, b) => primaryRoles.indexOf(isScheduledMailbox(a.m) ? "scheduled" : a.m.role ?? "") - primaryRoles.indexOf(isScheduledMailbox(b.m) ? "scheduled" : b.m.role ?? ""));
+  const primaryIds = new Set(primaryRows.map(({m}) => m.id));
+  const primaryTreeIds = new Set(primaryIds);
+  for (const {m} of baseRows) {
+    if (m.parentId && primaryTreeIds.has(m.parentId)) primaryTreeIds.add(m.id);
+  }
+  const primaryTreeRows = primaryRows.flatMap((root) => [root, ...baseRows.filter(({m}) => m.id !== root.m.id && primaryTreeIds.has(m.id) && (() => {
+    let parent = m.parentId;
+    while (parent) { if (parent === root.m.id) return true; parent = mailboxes[parent]?.parentId ?? null; }
+    return false;
+  })())]);
+  const secondaryRows = baseRows.filter(({m}) => !primaryTreeIds.has(m.id) && m.role !== "all" && m.role !== "flagged");
+  const renderRows = (items: typeof rows) => items.map(({ m, depth, hasChildren, open, hiddenUnread, childUnread }) => (
+          <FolderRow
+            key={m.id}
+            mailbox={m}
+            label={mailboxDisplayName(m)}
+            depth={depth}
+            hasChildren={hasChildren}
+            open={open}
+            hiddenUnread={hiddenUnread}
+            childUnread={childUnread}
+            onToggle={() => toggle(m.id)}
+            onDrillIn={isMobile && hasChildren ? () => setDrillId(m.id) : undefined}
+            currentId={currentId}
+            onMenu={(mb, e) => { setMenuTarget(mb); menu.open(e); }}
+            dragging={draggingId === m.id}
+            acceptsFolder={canDropOn(m.id)}
+            onFolderDragStart={() => setDraggingId(m.id)}
+            onFolderDragEnd={() => { setDraggingId(null); setRootDrop(false); }}
+            onFolderDrop={(id) => void moveFolder(id, m.id)}
+            canPlace={(placement) => canPlace(m.id, placement) && !(placement === "after" && open && hasChildren)}
+            onFolderPlace={(id, placement) => void placeFolderAt(id, m.id, placement)}
+          />
+        ));
 
   if (!loaded) {
     return (
@@ -179,7 +226,7 @@ export function MailboxTree() {
 
   return (
     <>
-      <nav aria-label={t("Folders")} className={isMobile ? "folder-drill" : undefined} style={{ marginTop: 6 }}>
+      <nav aria-label={t("Folders")} className={`mail-navigation${isMobile ? " folder-drill" : ""}`} style={{ marginTop: 6 }}>
         <div
           className={`nav-section${rootDrop ? " drop-target" : ""}`}
           onDragOver={(e) => {
@@ -233,38 +280,24 @@ export function MailboxTree() {
             />
           </>
         )}
-        {(isMobile ? childrenOf(drill?.id ?? null).map((m) => ({ m, depth: 0, hasChildren: childrenOf(m.id).length > 0, open: false, hiddenUnread: subtreeUnread(m.id), childUnread: subtreeUnread(m.id) })) : rows).map(({ m, depth, hasChildren, open, hiddenUnread, childUnread }) => (
-          <FolderRow
-            key={m.id}
-            mailbox={m}
-            label={mailboxDisplayName(m)}
-            depth={depth}
-            hasChildren={hasChildren}
-            open={open}
-            hiddenUnread={hiddenUnread}
-            childUnread={childUnread}
-            onToggle={() => toggle(m.id)}
-            onDrillIn={isMobile && hasChildren ? () => setDrillId(m.id) : undefined}
-            currentId={currentId}
-            onMenu={(mb, e) => { setMenuTarget(mb); menu.open(e); }}
-            dragging={draggingId === m.id}
-            acceptsFolder={canDropOn(m.id)}
-            onFolderDragStart={() => setDraggingId(m.id)}
-            onFolderDragEnd={() => { setDraggingId(null); setRootDrop(false); }}
-            onFolderDrop={(id) => void moveFolder(id, m.id)}
-            canPlace={(placement) => canPlace(m.id, placement) && !(placement === "after" && open && hasChildren)}
-            onFolderPlace={(id, placement) => void placeFolderAt(id, m.id, placement)}
-          />
-        ))}
-        {/* Labels are a flat list that belongs to the mailbox, not to whichever
+        {drill ? renderRows(childrenOf(drill.id).map((m) => ({ m, depth: 0, hasChildren: childrenOf(m.id).length > 0, open: false, hiddenUnread: subtreeUnread(m.id), childUnread: subtreeUnread(m.id) }))) : <>
+          {renderRows(primaryTreeRows)}
+          <div>
+            <Link href="/search?q=is%3Astarred" className={`nav-item ${location === "/search" && new URLSearchParams(search).get("q") === "is:starred" ? "active" : ""}`}><Star size={20} /><span className="nav-label">{t("Starred")}</span></Link>
+            {renderRows(secondaryRows.filter(({m}) => m.role === "drafts"))}
+            <Link href="/search?q=in%3Aall" className={`nav-item ${location === "/search" && new URLSearchParams(search).get("q") === "in:all" ? "active" : ""}`}><Mail size={20} /><span className="nav-label">{t("All mail")}</span></Link>
+            {renderRows(secondaryRows.filter(({m}) => m.role !== "drafts"))}
+            <Link href="/settings/labels" className="nav-item"><Tag size={20} /><span className="nav-label">{t("Manage labels")}</span></Link>
+          </div>
+        </>}        {/* Labels are a flat list that belongs to the mailbox, not to whichever
             folder is on screen, so they stay at the top level of the drill. */}
-        {!drill && labelsSidebar && shownLabels.length > 0 && (
+        {!drill && labelsSidebar && (
           <>
             <div className="nav-section">
               <span>{t("Labels")}</span>
-              <Link href="/settings/labels" className="icon-btn" title={t("Manage labels")} aria-label={t("Manage labels")}>
-                <Pencil size={14} />
-              </Link>
+              <button className="icon-btn" title={t("New label")} aria-label={t("New label")} onClick={() => void createLabel()}>
+                <Plus size={16} />
+              </button>
             </div>
             {shownLabels.map((n) => (
               <Link

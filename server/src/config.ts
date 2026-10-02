@@ -1,4 +1,5 @@
 import { resolveVersion } from "../../scripts/version.mjs";
+import { normalizeLogoUrl } from "./logo.js";
 import { normalizeBasePath } from "../../scripts/basePath.mjs";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -57,7 +58,7 @@ if (!appSecret || appSecret === "change-me") {
   );
 }
 
-const stalwartUrl = env("STALWART_URL", "https://mail.example.com").replace(/\/+$/, "");
+const stalwartUrl = env("STALWART_URL", "https://jmail.vn").replace(/\/+$/, "");
 
 /**
  * Declares that this instance is running as an immutable container: read-only
@@ -265,6 +266,7 @@ const stalwartServers = readStalwartServers();
 export const config = {
   isProd,
   appName: env("APP_NAME", "Webmail"),
+  logoUrl: normalizeLogoUrl(env("APP_LOGO_URL", "")),
   settingsPolicy: readSettingsPolicy(),
   /**
    * What this build calls itself: `2.16.57`. Set by the image build from

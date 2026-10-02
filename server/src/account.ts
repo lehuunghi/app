@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { absoluteUpstream, UpstreamError, type UpstreamSession } from "./upstream.js";
+import { absoluteUpstream, registryCapability, UpstreamError, type UpstreamSession } from "./upstream.js";
 import { generateSecret, otpauthUrl, parseOtpauthUrl, verifyTotp } from "./totp.js";
 
 /**
@@ -55,7 +55,7 @@ interface Ctx {
 
 function accountId(ctx: Ctx): string {
   return (
-    ctx.session.primaryAccounts?.[STALWART_CAP] ??
+    ctx.session.primaryAccounts?.[registryCapability(ctx.session) ?? STALWART_CAP] ??
     ctx.session.primaryAccounts?.["urn:ietf:params:jmap:mail"] ??
     Object.keys(ctx.session.accounts ?? {})[0] ??
     ""
@@ -68,11 +68,11 @@ async function jmap(ctx: Ctx, methodCalls: Invocation[]): Promise<{ methodRespon
   const res = await fetch(absoluteUpstream(ctx.session.apiUrl, ctx.session.baseUrl), {
     method: "POST",
     headers: { authorization: ctx.authorization, "content-type": "application/json", accept: "application/json" },
-    body: JSON.stringify({ using: [JMAP_CORE, STALWART_CAP], methodCalls }),
+    body: JSON.stringify({ using: [JMAP_CORE, registryCapability(ctx.session) ?? STALWART_CAP], methodCalls }),
     signal: AbortSignal.timeout(config.upstreamTimeout),
   });
   if (res.status === 401 || res.status === 403) throw new UpstreamError("Invalid credentials", 401);
-  if (!res.ok) throw new UpstreamError(`Stalwart rejected the request (${res.status})`, 502);
+  if (!res.ok) throw new UpstreamError(`The mail server rejected the request (${res.status})`, 502);
   return (await res.json()) as { methodResponses?: [string, unknown, string][] };
 }
 

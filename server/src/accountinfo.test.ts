@@ -139,3 +139,11 @@ test("account info is asked of the server that issued the session", async () => 
   assert.ok(seen.length >= 2, "asks for both the locale and the edition");
   for (const url of seen) assert.ok(url.startsWith("https://mail.mapped.test/"), `${url} went to the wrong server`);
 });
+
+for (const cap of ["urn:stalwart:jmap", "urn:inbuxa:jmap:registry"]) {
+  test(`registry capability ${cap} is recognized at every advertisement level`, () => {
+    assert.equal(hasStalwartRegistry({ capabilities: { [cap]: {} }, accounts: {}, primaryAccounts: {} }), true);
+    assert.equal(hasStalwartRegistry({ capabilities: {}, accounts: {}, primaryAccounts: { [cap]: "a1" } }), true);
+    assert.equal(hasStalwartRegistry({ capabilities: {}, accounts: { a1: { accountCapabilities: { [cap]: {} } } }, primaryAccounts: {} }), true);
+  });
+}

@@ -4,7 +4,7 @@ import { DEFAULT_SORT, useMail, type ListQuery } from "@/store/mail";
 import { appliesTo, comparatorsFor } from "@/lib/listSort";
 import type { Comparator } from "@/jmap/types";
 import { useSettings } from "@/store/settings";
-import { withBase } from "@/lib/basePath";
+import { BrandLogo } from "@/ui/BrandLogo";
 import { useCompose } from "@/store/compose";
 import { buildFilter, describeFilter, parseQuery } from "@/lib/search";
 import { keyboard } from "@/lib/input/keyboard";
@@ -468,7 +468,7 @@ export function MailView({ mailboxId, threadId, search }: { mailboxId?: string; 
             <ThreadView key={`${threadId}:${openMessageId ?? ""}`} threadId={threadId} messageId={openMessageId} mailboxId={mailboxId ?? null} onBack={() => openThread(null)} actions={actions} onNavigate={(delta) => { const idx = currentRowIndex; const next = ids[idx + delta]; const t = next ? rowThreadId(next) : undefined; if (t) { setFocusId(next!); openThread(t, settings.conversationMode ? null : next!); } }} hasPrev={currentRowIndex > 0} hasNext={currentRowIndex >= 0 && currentRowIndex < ids.length - 1} />
           ) : (
             <div className="no-thread">
-              <img src={withBase("/img/webmail.svg")} alt="" />
+              <BrandLogo />
               <div>
                 {list?.total
                   ? settings.conversationMode

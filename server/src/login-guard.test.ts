@@ -52,9 +52,9 @@ test("the message says the credentials were fine, and names the way out", async 
   const { body } = await login({ username: "demo@example.com", password: "demo-password" });
   // Someone hitting this has typed a correct password. Saying so is the
   // difference between "upgrade your server" and "try your password again".
-  assert.match(body.message, /credentials are fine/i);
-  assert.match(body.message, /0\.16/);
-  assert.match(body.message, /stalwart-0\.15-support/, "the tag to build from if they cannot upgrade");
+  assert.match(body.message, /capability registry/);
+  assert.match(body.message, /urn:stalwart:jmap/);
+  assert.match(body.message, /urn:inbuxa:jmap:registry/);
 });
 
 test("no session is minted for a server we cannot talk to", async () => {

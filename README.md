@@ -3,7 +3,7 @@
 Ứng dụng Webmail tiếng Việt, dùng lại giao diện React của bản [webmail](https://github.com/lehuunghi/webmail), với giao diện lấy cảm hứng từ Gmail. Android và iOS dùng Capacitor, cùng kết nối tới máy chủ Webmail/Stalwart đang dùng trên máy tính.
 
 - Tiếng Việt mặc định; có thể đổi ngôn ngữ trước khi đăng nhập.
-- Giao diện được đóng gói trong ứng dụng; lần đầu mở, nhập địa chỉ **HTTPS của website Webmail**, không nhập địa chỉ JMAP/Stalwart trực tiếp.
+- Giao diện được đóng gói trong ứng dụng. App dùng cố định **https://jmail.vn**, mở thẳng màn hình đăng nhập và gọi API tại **https://webmail.jmail.vn** theo chuyển hướng của dịch vụ.
 - Kết nối HTTP native, cookie phiên đăng nhập do nền tảng quản lý; không lưu mật khẩu trong cấu hình hoặc mã nguồn.
 - Kiểm tra thay đổi JMAP mỗi 30 giây khi app ở phía trước, tạm dừng khi app ở nền và kiểm tra lại khi quay về.
 - Chọn tệp đính kèm bằng bộ chọn tệp của thiết bị; tải/lưu/chia sẻ bằng bảng chia sẻ native.
@@ -11,7 +11,9 @@
 - Đăng xuất chặn tự khôi phục phiên cũ kể cả khi mất mạng; chỉ đăng nhập thành công mới mở lại phiên.
 - Có nút thử lại khi khởi động lỗi và khoảng trống cho vùng tai thỏ, thanh trạng thái và thanh điều hướng.
 
-**Trạng thái:** phiên bản native 1.0.1 (build 2). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+**Trạng thái:** phiên bản native 1.0.3 (build 4). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+
+Giao diện đồng bộ từ `lehuunghi/webmail` tại commit `bfd7320612cba7eba905365db6c79a40514f0369`: đăng nhập gọn, logo theo triển khai, thanh điều hướng workspace, tìm kiếm nâng cao và thư mục kiểu Gmail. Các lớp HTTP native, cookie, đăng xuất, tệp chia sẻ và safe area được giữ trong nhánh app.
 
 ## Chuẩn bị và mở dự án
 
@@ -55,7 +57,7 @@ npm run mobile:sync
 npm run mobile:check
 ```
 
-Workflow `Build mobile test apps` chạy thủ công trong GitHub Actions để tạo APK debug và ứng dụng iOS cho simulator. Nó không phát hành lên Google Play/App Store và không tạo IPA đã ký.
+Workflow `Build mobile test apps` chạy khi cập nhật `main` hoặc chạy thủ công. Nó build và kiểm tra mở app trên Android/iOS, kiểm tra giao diện với máy chủ JMAP giả lập, rồi lưu bản thử nghiệm lên [Releases](https://github.com/lehuunghi/app/releases). APK debug không phải bản Google Play; bản iOS dành cho simulator, chưa có IPA đã ký.
 
 ## Nguồn gốc và giấy phép
 

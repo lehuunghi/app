@@ -69,7 +69,7 @@ npx cap sync android
 npm run mobile:android
 ```
 
-Trong Android Studio, chờ Gradle Sync xong. Chọn emulator hoặc điện thoại đã bật USB debugging, rồi nhấn Run. Trên màn hình đầu, nhập địa chỉ HTTPS của Webmail; màn hình tiếp theo dùng tài khoản thư như trên website.
+Trong Android Studio, chờ Gradle Sync xong. Chọn emulator hoặc điện thoại đã bật USB debugging, rồi nhấn Run. App mở thẳng màn hình đăng nhập của dịch vụ https://jmail.vn. Nhập tài khoản thư và mật khẩu như trên website.
 
 ### Build APK debug bằng dòng lệnh
 
@@ -127,10 +127,11 @@ Khi mã nguồn đã nằm trong kho `app`, mở Actions → **Build mobile test
 
 - Job Android tạo `webmail-android-debug` chứa APK debug.
 - Job iOS tạo `webmail-ios-simulator` chứa ứng dụng dành cho simulator, không phải IPA cho iPhone.
-- Các job không chứa khóa ký và không tự phát hành lên cửa hàng.
+- Các job không chứa khóa ký phát hành và không tự phát hành lên cửa hàng.
+- Sau khi các kiểm tra đạt, APK và bản simulator được lưu ở GitHub Releases với phiên bản riêng; link tải không dùng URL tạm vài phút.
 - Runner iOS phải có Xcode 26 trở lên. Nếu runner mặc định chưa có phiên bản cần thiết, đổi runner hoặc chọn Xcode phù hợp trước khi build.
 
-Workflow này có sẵn để chạy thủ công. Chỉ xem artifact có thực sự xuất hiện sau khi workflow thành công là bằng chứng build native hoàn tất.
+Workflow này chạy khi cập nhật main và có thể chạy thủ công. Chỉ xem artifact có thực sự xuất hiện sau khi workflow thành công là bằng chứng build native hoàn tất.
 
 ## 7. Những phần đã có và giới hạn hiện tại
 
@@ -138,7 +139,7 @@ Workflow này có sẵn để chạy thủ công. Chỉ xem artifact có thực 
 | --- | --- |
 | Giao diện React dùng chung, tiếng Việt mặc định | Đã chuẩn bị và build |
 | Dự án Android/iOS, icon riêng, plugin native | Đã tạo và đồng bộ |
-| Kết nối API bằng HTTP native | Đã tích hợp; cần thử với máy chủ thật trên thiết bị |
+| Kết nối API bằng HTTP native | Đã kiểm tra kết nối và đăng nhập sai; gửi/nhận thư cần tài khoản thử |
 | Đồng bộ JMAP khi app mở | Mỗi 30 giây; dừng khi ở nền, kiểm tra lại khi quay về |
 | Chọn tệp đính kèm | Dùng bộ chọn tệp của WebView/thiết bị |
 | Lưu và chia sẻ tệp | Dùng Filesystem cache và Share native |
@@ -169,7 +170,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.2 (build 3).
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.3 (build 4).
 
 ## 9. Nguồn tham khảo
 

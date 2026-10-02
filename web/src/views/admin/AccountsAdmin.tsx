@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { ChevronLeft, ChevronRight, Search, UserPlus, Users } from "lucide-react";
 import { useSession } from "@/store/session";
-import { STALWART_CAP } from "@/jmap/client";
+import { STALWART_CAP, INBUXA_CAP } from "@/jmap/client";
 import { can, type RoleDef } from "@/lib/admin/adminAccess";
 import {
   describeDirectoryError,
@@ -101,7 +101,7 @@ export function AccountsAdmin({ selectedId }: { selectedId?: string }) {
       const domain = a.emailAddress?.split("@")[1];
       if (domain && !seen.has(a.domainId)) seen.set(a.domainId, { id: a.domainId, name: domain });
     }
-    const ownId = session?.primaryAccounts?.[STALWART_CAP];
+    const ownId = session?.primaryAccounts?.[INBUXA_CAP] ?? session?.primaryAccounts?.[STALWART_CAP];
     return {
       domains: (serverDomains ?? [...seen.values()]).slice().sort((x, y) => x.name.localeCompare(y.name)),
       roles,

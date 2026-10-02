@@ -1257,6 +1257,9 @@ a.menu-item:hover { color: var(--fg); }
 .searchbar input::placeholder { color: var(--fg-faint); }
 .search-panel { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-2); padding: 16px; z-index: 60; animation: pop .12s var(--ease); }
 .search-panel .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
+.search-panel-footer { display: flex; justify-content: space-between; gap: 16px; margin-top: 16px; }
+.search-panel-options { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+.search-panel-actions { margin-left: auto; }
 .search-suggest { position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--bg-elev); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-2); padding: 6px; z-index: 60; }
 .topbar-actions { display: flex; align-items: center; gap: 4px; }
 /* Live-updates indicator. Three states, and a raised bead rather than a flat
@@ -2428,3 +2431,101 @@ button.dp-open:disabled { cursor: default; opacity: .5; }
 /* What arrived from the operating system's share sheet, shown before it is opened. */
 .share-summary { margin: 0 0 8px; padding-left: 1ex; border-left: 2px solid var(--border-strong); color: var(--fg-muted); overflow-wrap: anywhere; }
 .share-summary-files { margin: 0 0 8px; padding-left: 1.2em; color: var(--fg-muted); overflow-wrap: anywhere; }
+
+/* Workspace navigation stays independent of the current section's folders. */
+.workspace-app { --rail-w: 64px; }
+.workspace-app .app-body { grid-template-columns: var(--rail-w) var(--sidebar-w) minmax(0, 1fr); }
+.workspace-app .app-body.collapsed { grid-template-columns: var(--rail-w) var(--sidebar-w-collapsed) minmax(0, 1fr); }
+.workspace-app .app-body > .sidebar-splitter { left: calc(var(--rail-w) + var(--sidebar-w) - 3px); }
+.workspace-rail { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 16px 4px; background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
+.workspace-rail .module-link { flex: 0 0 auto; width: 56px; height: 68px; padding: 6px 0; gap: 7px; border-radius: 0; background: none; font-size: 11px; color: var(--fg-muted); margin: 0; }
+.workspace-rail .module-link svg { box-sizing: content-box; width: 20px; height: 20px; padding: 6px 12px; border-radius: 18px; }
+.workspace-rail .module-link:hover svg { background: var(--bg-hover); }
+.workspace-rail .module-link.active { color: var(--fg); font-weight: 650; }
+.workspace-rail .module-link.active svg { background: var(--accent-soft); color: var(--accent-soft-fg); }
+.workspace-rail .module-link .module-label { display: block; flex-shrink: 0; line-height: 16px; }
+@media (min-width: 769px) {
+  .workspace-app .topbar { padding-left: 12px; }
+  .workspace-app .topbar > .icon-btn:first-child { width: 40px; margin-right: 12px; flex-shrink: 0; }
+  .workspace-app .topbar .brand { width: calc(var(--sidebar-w) - 44px); flex-shrink: 0; font-weight: 500; }
+  .workspace-app .sidebar { padding-left: 10px; padding-right: 10px; }
+}
+@media (max-width: 768px) {
+  .workspace-app .app-body, .workspace-app .app-body.collapsed { grid-template-columns: minmax(0, 1fr); }
+  .workspace-rail { display: none; }
+}
+@media print { .workspace-rail { display: none !important; } }
+
+/* Account sign-in: spacious two-column card and a quiet footer. */
+.gmail-login { background: var(--bg); padding: 48px 24px; font-family: Arial, sans-serif; }
+:root:not([data-theme="dark"]) .gmail-login { background: #f0f4f9; --fg: #1f1f1f; --fg-muted: #444746; --fg-faint: #747775; --accent: #0b57d0; }
+.gmail-login .login-container { width: 100%; max-width: 880px; }
+.gmail-login .login-card { max-width: none; display: grid; grid-template-columns: .9fr 1.1fr; gap: 40px; padding: 36px; border: 0; border-radius: 28px; box-shadow: none; animation: none; }
+.login-brand { display: flex; align-items: center; gap: 8px; font-size: 17px; color: var(--fg-muted); margin-bottom: 24px; }
+.login-brand img { flex: 0 0 auto; }
+.gmail-login .login-card h1 { font-size: 32px; line-height: 1.25; font-weight: 400; color: var(--fg); letter-spacing: 0; }
+.login-intro > p { margin-top: 12px; max-width: 320px; font-size: 14px; line-height: 1.5; color: var(--fg); }
+.login-fields { padding-top: 24px; min-width: 0; }
+.gmail-login .input { height: 56px; border-radius: 4px; background: transparent; border-color: var(--fg-faint); }
+.gmail-login .field { position: relative; margin-bottom: 20px; }
+.gmail-login .field > label { position: absolute; z-index: 1; top: -10px; left: 12px; background: var(--bg-elev); padding: 0 5px; font-size: 12px; color: var(--fg-muted); }
+.gmail-login .input { padding-left: 16px; font-size: 16px; color: var(--fg); }
+.gmail-login .input:focus { border-color: var(--accent); outline: 1px solid var(--accent); box-shadow: none; }
+.gmail-login .field:focus-within > label { color: var(--accent); }
+.gmail-login .pw-wrap .input { padding-right: 48px; }
+.gmail-login .pw-wrap .icon-btn { top: 8px; right: 6px; }
+.login-device { margin-top: 4px; }
+.login-security-note { margin: 12px 0 16px; font-size: 12px; line-height: 1.5; }
+.login-actions { display: flex; justify-content: flex-end; padding-top: 8px; }
+.login-actions .btn { min-height: 40px; min-width: 116px; border-radius: 24px; padding: 0 24px; font-size: 14px; font-weight: 600; box-shadow: none; }
+.login-footer { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 12px 8px; font-size: 12px; color: var(--fg-muted); }
+.login-footer select { border: 0; background: transparent; color: var(--fg-muted); padding: 8px; max-width: 190px; font: inherit; }
+.login-footer select:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+@media(max-width: 720px) {
+  .gmail-login { padding: 32px 24px 16px; align-items: flex-start; background: var(--bg-elev); min-height: 100%; }
+  :root:not([data-theme="dark"]) .gmail-login { background: #fff; }
+  .gmail-login .login-container { max-width: 440px; margin: 0 auto; }
+  .gmail-login .login-card { grid-template-columns: 1fr; gap: 28px; padding: 0; border-radius: 0; }
+  .login-fields { padding-top: 0; }
+  .gmail-login .login-card h1 { font-size: 28px; }
+  .login-brand { margin-bottom: 20px; }
+  .login-intro > p { max-width: none; }
+  .login-actions { padding-top: 12px; }
+  .login-actions .btn { min-height: 44px; }
+  .login-footer { padding: 24px 0 0; }
+  .login-footer select { min-height: 44px; }
+}
+@media (max-width: 768px) {
+  .mobile-workspace-nav { display: flex; gap: 4px; padding: 0 4px 12px; border-bottom: 1px solid var(--border); margin-bottom: 12px; flex-shrink: 0; }
+  .mobile-workspace-nav .module-link { flex: 1; min-width: 0; height: 60px; margin: 0; padding: 8px 2px; gap: 6px; font-size: 11px; line-height: 16px; border-radius: 16px; }
+}
+
+@media (max-width: 768px) {
+  .reply-box .reply-prompt {
+    flex-wrap: nowrap;
+    gap: 8px;
+    padding: 0;
+    border: 0;
+  }
+  .reply-box .reply-prompt > button {
+    min-width: 0;
+    min-height: 40px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    gap: 3px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .reply-box .reply-prompt > button:not(.icon-btn) svg {
+    width: 14px;
+    height: 14px;
+    flex-shrink: 0;
+  }
+  .reply-box .reply-prompt > .spacer { display: none; }
+  .reply-box .reply-prompt > .icon-btn {
+    width: 24px;
+    flex: 0 0 24px;
+    margin-left: auto;
+  }
+}

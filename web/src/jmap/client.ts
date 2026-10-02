@@ -22,6 +22,7 @@ export const CAP = {
 
 /** Stalwart's own capability, which carries its `x:` registry methods. */
 export const STALWART_CAP = "urn:stalwart:jmap";
+export const INBUXA_CAP = "urn:inbuxa:jmap:registry";
 
 export class JmapMethodError extends Error {
   constructor(
@@ -250,7 +251,9 @@ export class JmapClient {
     if (!this.session?.capabilities) return using;
     // Anywhere counts: a capability advertised per-account is one the server
     // has, and Stalwart advertises its own that way and no other.
-    return using.filter((u) => u === CAP.core || this.hasCapabilityAnywhere(u));
+    const registry = [INBUXA_CAP, STALWART_CAP].find((cap) => this.hasCapabilityAnywhere(cap));
+    return [...new Set(using.map((u) => u === STALWART_CAP && registry ? registry : u))]
+      .filter((u) => u === CAP.core || this.hasCapabilityAnywhere(u));
   }
 
   /** Low-level request: send invocations verbatim, return raw response. */

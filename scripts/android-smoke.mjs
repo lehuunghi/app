@@ -32,6 +32,7 @@ try {
   adb("install", "-r", "dist/app-debug.apk");
   adb("shell", "am", "start", "-W", "-n", pkg + "/.MainActivity");
   const launch = await waitFor((xml) => nodes(xml).filter((n) => n.class === "android.widget.EditText").length === 2);
+  if (!/Sử dụng tài khoản của bạn để truy cập không gian làm việc\.|Use your account to access your workspace\./.test(launch)) throw new Error("Updated sign-in screen is missing");
   writeFileSync("android-smoke/login.xml", launch);
   writeFileSync("android-smoke/login.png", execFileSync("adb", ["exec-out", "screencap", "-p"]));
   if (/Connect to your Webmail server|Địa chỉ máy chủ Webmail|Change Webmail server|Đổi máy chủ Webmail/.test(launch)) throw new Error("Server picker is still visible");
@@ -39,14 +40,15 @@ try {
   tap(fields[0]); adb("shell", "input", "text", "codex-smoke-" + Date.now() + "@jmail.vn");
   const passwordScreen = await waitFor((xml) => nodes(xml).filter((n) => n.class === "android.widget.EditText").length === 2);
   tap(nodes(passwordScreen).filter((n) => n.class === "android.widget.EditText")[1]); adb("shell", "input", "text", "invalid-smoke-password"); adb("shell", "input", "keyevent", "4");
-  const filled = await waitFor((xml) => nodes(xml).some((n) => /^(Đăng nhập|Sign in)$/.test(n.text || n["content-desc"])));
-  const signIn = nodes(filled).find((n) => /^(Đăng nhập|Sign in)$/.test(n.text || n["content-desc"]));
+  const isSignIn = (n) => n.class === "android.widget.Button" && /^(Đăng nhập|Sign in)$/.test(n.text || n["content-desc"]);
+  const filled = await waitFor((xml) => nodes(xml).some(isSignIn));
+  const signIn = nodes(filled).find(isSignIn);
   if (!signIn) throw new Error("Sign-in button unavailable");
   tap(signIn);
   const rejected = await waitFor((xml) => /Tên đăng nhập hoặc mật khẩu không đúng\.|Invalid username or password\./i.test(xml));
   writeFileSync("android-smoke/invalid-login.xml", rejected);
   writeFileSync("android-smoke/invalid-login.png", execFileSync("adb", ["exec-out", "screencap", "-p"]));
-  report = { installed: true, launched: true, serverPickerRemoved: true, invalidLoginRejected: true, authenticatedMailTest: "No test account supplied" };
+  report = { installed: true, launched: true, updatedLoginVisible: true, serverPickerRemoved: true, invalidLoginRejected: true, authenticatedMailTest: "No test account supplied" };
 } catch (error) {
   try {
     writeFileSync("android-smoke/failure.xml", dump());

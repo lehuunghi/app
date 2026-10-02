@@ -122,14 +122,14 @@ function RulesEditor() {
       <div className="warn-box">
         <div className="row gap-8" style={{ marginBottom: 8 }}><AlertTriangle size={18} /> <b>{t("Your active script “{name}” was written by hand.", { name: script?.name ?? "" })}</b></div>
         <p style={{ margin: "0 0 8px" }}>{tNode("The visual rule editor only manages scripts it created. You can edit the script in the {tab} tab, or start fresh with rules (the existing script will be kept but deactivated).", { tab: <b>{t("Scripts")}</b> })}</p>
-        <button className="btn" onClick={async () => { if (await confirmDialog({ title: t("Switch to rules?"), message: t("“{name}” will be deactivated (not deleted) and a new “Webmail” script will take over.", { name: script?.name ?? "" }), confirmLabel: t("Continue") })) void save([]); }}>{t("Start with rules")}</button>
+        <button className="btn" onClick={async () => { if (await confirmDialog({ title: t("Switch to rules?"), message: t("“{name}” will be deactivated (not deleted) and a new rules script will take over.", { name: script?.name ?? "" }), confirmLabel: t("Continue") })) void save([]); }}>{t("Start with rules")}</button>
       </div>
     );
   }
 
   return (
     <div>
-      {activeIsOther && <div className="warn-box mb-16">{t("Another script (“{name}”) is active. Saving rules here will activate the “Webmail” script instead.", { name: script?.name ?? "" })}</div>}
+      {activeIsOther && <div className="warn-box mb-16">{t("Another script (“{name}”) is active. Saving rules here will activate the app’s rules script instead.", { name: script?.name ?? "" })}</div>}
       {list.length === 0 && <div className="empty" style={{ padding: 32 }}><Wand2 size={32} /><h3>{t("No filters yet")}</h3><p>{t("Create a rule to move newsletters to a folder, flag important senders, or forward mail.")}</p></div>}
       {list.map((r, i) => (
         <div
