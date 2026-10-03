@@ -12,7 +12,7 @@
 - Đăng xuất chặn tự khôi phục phiên cũ kể cả khi mất mạng; chỉ đăng nhập thành công mới mở lại phiên.
 - Có nút thử lại khi khởi động lỗi và khoảng trống cho vùng tai thỏ, thanh trạng thái và thanh điều hướng.
 
-**Trạng thái:** phiên bản native 1.0.4 (build 5). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+**Trạng thái:** phiên bản native 1.0.4 (build 6). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
 
 Giao diện đồng bộ từ `lehuunghi/webmail` tại commit `bfd7320612cba7eba905365db6c79a40514f0369`: đăng nhập gọn, logo theo triển khai, thanh điều hướng workspace, tìm kiếm nâng cao và thư mục kiểu Gmail. Các lớp HTTP native, cookie, đăng xuất, tệp chia sẻ và safe area được giữ trong nhánh app.
 

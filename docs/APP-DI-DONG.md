@@ -178,7 +178,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.4 (build 5).
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.4 (build 6).
 
 ## 9. Nguồn tham khảo
 
