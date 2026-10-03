@@ -24,6 +24,14 @@ Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nh�
 
 Nếu bridge native khởi động lỗi, app hiển thị thông báo tiếng Việt cùng nút **Thử lại**.
 
+### Triển khai độc lập với kho webmail
+
+Kho `app` chứa cả `server/` và `web/`, cùng cấu hình Docker. Có thể triển khai web/API riêng từ kho này bằng cách cấu hình `STALWART_URL`, `APP_SECRET`, `APP_NAME`, `SOURCE_URL` trong `.env`, dùng Stalwart riêng hoặc cùng Stalwart hiện có, rồi build/chạy máy chủ và đặt HTTPS phía trước.
+
+APK đã build không tự nhận địa chỉ từ `.env` trên máy chủ. Khi build app cho triển khai riêng, sửa hai hằng số trong `web/src/lib/mobile/config.ts`: `MOBILE_SERVER_URL` là địa chỉ dịch vụ thư, `MOBILE_API_URL` là gốc HTTPS của Webmail Node API. Chạy lại `npm run mobile:sync` và build native sau khi đổi. Điện thoại chỉ chạy giao diện và các plugin native; Node.js/Stalwart vẫn chạy trên máy chủ.
+
+Nếu muốn cài song song nhiều bản native cho các triển khai khác nhau, cần app ID/package riêng và cấu hình ký tương ứng. ZIP iOS simulator không cài lên iPhone; cần ký bản iOS cho thiết bị.
+
 ## 3. Lấy mã nguồn và cài dependencies
 
 Kho `app` chứa mã nguồn dành riêng cho ứng dụng. Lấy mã nguồn bằng:
@@ -160,7 +168,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 
 ## 8. Kiểm thử trên điện thoại trước phát hành
 
-1. App mở thẳng màn hình đăng nhập, không có ô nhập/nút đổi máy chủ; dịch vụ mặc định là `https://jmail.vn`, API dùng `https://webmail.jmail.vn`.
+1. App mở thẳng màn hình đăng nhập, không có ô nhập/nút đổi máy chủ, dòng tên miền hay liên kết mã nguồn bên dưới. Dịch vụ mặc định là `https://jmail.vn`, API dùng `https://webmail.jmail.vn`. Menu tài khoản không có mục Quản trị; liên kết mã nguồn nằm trong Cài đặt.
 2. Đăng nhập đúng/sai, đăng xuất, mở lại app và nâng cấp từ bản cũ đã lưu máy chủ khác. Thử đăng xuất khi mất mạng rồi đóng/mở app: app phải yêu cầu đăng nhập lại dù cookie cũ còn trên thiết bị.
 3. Đọc/gửi thư trên tài khoản thử nghiệm; kiểm tra trạng thái đã đọc trên web và điện thoại.
 4. Tải ảnh CID và ảnh bên ngoài theo chính sách cho phép; thử tắt tải ảnh.
@@ -170,7 +178,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.3 (build 4).
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.4 (build 5).
 
 ## 9. Nguồn tham khảo
 

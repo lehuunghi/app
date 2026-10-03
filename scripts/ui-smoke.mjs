@@ -44,12 +44,26 @@ try {
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
     const context = await browser.newContext({ viewport });
     const page = active = await context.newPage();
+    let adminFixtureApplied = false;
+    const adminFixture = viewport.width < 769 ? "privileged" : "untrusted-administrator";
+    // Both administrator states formerly added an account-menu entry.
+    await page.route("**/api/auth/*", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      if (response.ok() && body.ihasmail) {
+        body.ihasmail = { ...body.ihasmail, administration: true, permissions: adminFixture === "privileged" ? ["sysAccountQuery", "sysAccountGet"] : [], administrationNeedsOwnDevice: adminFixture === "untrusted-administrator" };
+        adminFixtureApplied = true;
+      }
+      await route.fulfill({ response, json: body });
+    });
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const prefix = viewport.width < 769 ? "mobile" : "desktop";
     await page.goto("http://127.0.0.1:8080", { waitUntil: "domcontentloaded" });
     await visible(page, ".gmail-login");
     console.log("UI " + prefix + ": sign-in loaded");
+    const footer = page.locator(".login-footer");
+    if (await footer.locator("a").count() || /jmail|AGPL-3\.0/i.test(await footer.innerText())) throw new Error("Unwanted public sign-in footer");
     if (prefix === "mobile") await page.evaluate(() => { document.documentElement.dataset.nativeApp = "true"; });
     await noOverflow(page);
     for (const selector of ["#u", "#p", "button[type=submit]", "#login-language"]) await fits(page, selector);
@@ -60,6 +74,14 @@ try {
     await visible(page, ".workspace-app");
     await visible(page, ".msg-row");
     console.log("UI " + prefix + ": demo inbox loaded");
+    if (!adminFixtureApplied) throw new Error("Administrator account fixture was not applied");
+    await page.getByRole("button", { name: /^(Account|Tài khoản)$/ }).click();
+    const accountMenu = page.getByRole("menu");
+    await accountMenu.waitFor({ state: "visible" });
+    if (await accountMenu.getByRole("menuitem", { name: /Administration|Quản trị/i }).count()) throw new Error("Administration remains in account menu");
+    if (await accountMenu.getByRole("menuitem").count() !== 3) throw new Error("Unexpected account menu");
+    await page.screenshot({ path: "ui-smoke/" + prefix + "-account-menu.png", fullPage: true });
+    await page.keyboard.press("Escape");
     if (prefix === "mobile") await page.locator(".topbar > button").first().click();
     await visible(page, '.mail-navigation a[href*="is%3Astarred"]');
     await visible(page, '.mail-navigation a[href*="in%3Aall"]');
@@ -78,7 +100,7 @@ try {
     await noOverflow(page);
     await page.screenshot({ path: "ui-smoke/" + prefix + "-compose.png", fullPage: true });
     if (errors.length) throw new Error(errors.join("; "));
-    report.cases.push({ viewport, login: true, demoMailbox: true, navigation: true, advancedSearch: true, compose: true, noHorizontalOverflow: true });
+    report.cases.push({ viewport, login: true, publicLoginFooterRemoved: true, accountMenuWithoutAdministration: true, adminFixture, demoMailbox: true, navigation: true, advancedSearch: true, compose: true, noHorizontalOverflow: true });
     await context.close();
   }
 } catch (error) {

@@ -8,8 +8,7 @@ import { t } from "@/lib/i18n";
 import { UI_LANGUAGES } from "@/lib/languages";
 import { useSettings } from "@/store/settings";
 import { BrandLogo } from "@/ui/BrandLogo";
-import { isNativeApp, mobileServerUrl } from "@/lib/mobile/config";
-import { DEFAULT_SOURCE_URL } from "@/lib/source";
+import { isNativeApp } from "@/lib/mobile/config";
 
 export function LoginPage() {
   const uiLanguage = useSettings((s) => s.settings.uiLanguage);
@@ -106,8 +105,6 @@ export function LoginPage() {
           <select id="login-language" aria-label={t("Interface language")} value={uiLanguage} onChange={(e) => updateSettings({ uiLanguage: e.target.value })}>
             {UI_LANGUAGES.map((language) => <option key={language.tag} value={language.tag} lang={language.tag}>{language.name}</option>)}
           </select>
-          {isNativeApp() && <span className="native-login-service">{mobileServerUrl()}</span>}
-          <a href={DEFAULT_SOURCE_URL} target="_blank" rel="noopener noreferrer">{t("AGPL-3.0 source")}</a>
         </footer>
       </div>
     </div>

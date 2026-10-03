@@ -34,11 +34,14 @@ afterEach(async () => {
 });
 
 describe("language selection before sign-in", () => {
-  it("offers account login on jmail without any server picker or change-server button", async () => {
+  it("offers account login without a server picker or public footer links", async () => {
     vi.stubEnv("VITE_MOBILE_BUILD", "true");
     vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
     await act(async () => root.render(<TranslatedLogin />));
-    expect(host.textContent).toContain("https://jmail.vn");
+    expect(host.textContent).not.toContain("https://jmail.vn");
+    expect(host.querySelector(".native-login-service")).toBeNull();
+    expect(host.querySelector(".login-footer a")).toBeNull();
+    expect(host.textContent).not.toContain("AGPL-3.0");
     expect(host.querySelector('input[type="url"]')).toBeNull();
     expect(host.textContent).not.toContain("Change Webmail server");
     expect(host.querySelector("#u")).not.toBeNull();

@@ -28,8 +28,6 @@
 
 /* The compact sign-in footer can wrap on narrow phones and with larger text. */
 :root[data-native-app="true"] .login-footer { gap: 12px; flex-wrap: wrap; }
-:root[data-native-app="true"] .native-login-service { margin-left: auto; }
-:root[data-native-app="true"] .login-footer a { color: var(--fg-muted); font-size: 12px; }
 @media (max-width: 768px) {
   :root[data-native-app="true"] .search-panel {
     top: calc(var(--topbar-h) + var(--native-safe-top) + 4px);

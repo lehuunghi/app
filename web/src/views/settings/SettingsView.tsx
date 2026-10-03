@@ -14,6 +14,7 @@ import { SecuritySettings } from "./SecuritySettings";
 import { ShortcutsSettings } from "./ShortcutsSettings";
 import { CalendarSettings } from "./CalendarSettings";
 import { t } from "@/lib/i18n";
+import { DEFAULT_SOURCE_URL } from "@/lib/source";
 
 const FiltersSettings = lazy(() => import("./FiltersSettings").then((m) => ({ default: m.FiltersSettings })));
 const VacationSettings = lazy(() => import("./VacationSettings").then((m) => ({ default: m.VacationSettings })));
@@ -50,6 +51,9 @@ export function SettingsView({ section }: { section?: string }) {
         ))}
         <div className="nav-section" style={{ paddingLeft: 8 }}><span>{t("Shortcuts")}</span></div>
         <Link href="/contacts" className="nav-item"><Users size={18} /><span className="nav-label">{t("Address books")}</span></Link>
+        <div className="hint" style={{ padding: "16px 8px 8px" }}>
+          <a href={DEFAULT_SOURCE_URL} target="_blank" rel="noopener noreferrer">{t("AGPL-3.0 source")}</a>
+        </div>
       </nav>
       <div className="settings-content">
         {section && (

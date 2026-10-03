@@ -3,6 +3,7 @@
 Ứng dụng Webmail tiếng Việt, dùng lại giao diện React của bản [webmail](https://github.com/lehuunghi/webmail), với giao diện lấy cảm hứng từ Gmail. Android và iOS dùng Capacitor, cùng kết nối tới máy chủ Webmail/Stalwart đang dùng trên máy tính.
 
 - Tiếng Việt mặc định; có thể đổi ngôn ngữ trước khi đăng nhập.
+- Màn hình đăng nhập không hiển thị tên miền dịch vụ hoặc liên kết mã nguồn; thông tin mã nguồn nằm trong Cài đặt. Menu tài khoản gồm Cài đặt, Làm mới và Đăng xuất.
 - Giao diện được đóng gói trong ứng dụng. App dùng cố định **https://jmail.vn**, mở thẳng màn hình đăng nhập và gọi API tại **https://webmail.jmail.vn** theo chuyển hướng của dịch vụ.
 - Kết nối HTTP native, cookie phiên đăng nhập do nền tảng quản lý; không lưu mật khẩu trong cấu hình hoặc mã nguồn.
 - Kiểm tra thay đổi JMAP mỗi 30 giây khi app ở phía trước, tạm dừng khi app ở nền và kiểm tra lại khi quay về.
@@ -11,7 +12,7 @@
 - Đăng xuất chặn tự khôi phục phiên cũ kể cả khi mất mạng; chỉ đăng nhập thành công mới mở lại phiên.
 - Có nút thử lại khi khởi động lỗi và khoảng trống cho vùng tai thỏ, thanh trạng thái và thanh điều hướng.
 
-**Trạng thái:** phiên bản native 1.0.3 (build 4). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+**Trạng thái:** phiên bản native 1.0.4 (build 5). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
 
 Giao diện đồng bộ từ `lehuunghi/webmail` tại commit `bfd7320612cba7eba905365db6c79a40514f0369`: đăng nhập gọn, logo theo triển khai, thanh điều hướng workspace, tìm kiếm nâng cao và thư mục kiểu Gmail. Các lớp HTTP native, cookie, đăng xuất, tệp chia sẻ và safe area được giữ trong nhánh app.
 
@@ -46,6 +47,8 @@ npm start
 ```
 
 Dùng HTTPS phía trước máy chủ. Không đưa `.env` hoặc `APP_SECRET` vào ứng dụng mobile.
+
+Kho `app` có đủ `server/`, `web/`, `Dockerfile` và `docker-compose.yml` để triển khai một instance web/API riêng, không cần thay đổi kho `webmail`. Tuy nhiên APK hiện có vẫn dùng địa chỉ API cố định: đổi `.env` của máy chủ không đổi được địa chỉ bên trong APK. Để build cho instance riêng, sửa `MOBILE_SERVER_URL` (dịch vụ thư) và `MOBILE_API_URL` (web/API HTTPS) trong `web/src/lib/mobile/config.ts`, rồi chạy `npm run mobile:sync` và build lại Android/iOS. Với cấu hình hiện tại, nên đặt API ở gốc tên miền.
 
 ## Kiểm tra
 

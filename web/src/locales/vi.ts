@@ -90,7 +90,6 @@ export const catalog: Catalog = {
     "That is more than the mail server accepts in one change.": "Vượt số lượng máy chủ thư chấp nhận trong một lần thay đổi.",
     "The mail server rejected one of the values. Check what you entered and try again.": "Máy chủ thư từ chối một giá trị. Kiểm tra nội dung nhập rồi thử lại.",
     "The mail server refused the change ({code}).": "Máy chủ thư từ chối thay đổi ({code}).",
-    "Only on a device you've marked as your own. Sign in again with “This is my own device” ticked.": "Chỉ dùng trên thiết bị được đánh dấu là của riêng bạn. Đăng nhập lại và chọn “Đây là thiết bị của riêng tôi”.",
     "Change your own password in {settings}.": "Đổi mật khẩu của bạn trong {settings}.",
     "Administration": "Quản trị",
     "Directory": "Thư mục người dùng",
