@@ -62,10 +62,14 @@ try {
   if (!signIn) throw new Error("Sign-in button unavailable");
   stage = "invalid-login";
   tap(signIn);
-  const rejected = await waitFor((xml) => /Tên đăng nhập hoặc mật khẩu không đúng\.|Invalid username or password\./i.test(xml));
+  const rejected = await waitFor((xml) => /Tên đăng nhập hoặc mật khẩu không đúng\.|Invalid username or password\.|Đang lỗi kết nối, mời bạn kiểm tra lại\.|Network error\. Please check your connection\./i.test(xml));
   writeFileSync("android-smoke/invalid-login.xml", rejected);
   writeFileSync("android-smoke/invalid-login.png", execFileSync("adb", ["exec-out", "screencap", "-p"]));
-  report = { installed: true, launched: true, updatedLoginVisible: true, serverPickerRemoved: true, publicLoginFooterRemoved: true, invalidLoginRejected: true, launcherRecoveries, authenticatedMailTest: "No test account supplied" };
+  const invalidLoginRejected = /Tên đăng nhập hoặc mật khẩu không đúng\.|Invalid username or password\./i.test(rejected);
+  const connectionErrorShown = /Đang lỗi kết nối, mời bạn kiểm tra lại\.|Network error\. Please check your connection\./i.test(rejected);
+  report = { installed: true, launched: true, updatedLoginVisible: true, serverPickerRemoved: true, publicLoginFooterRemoved: true,
+    invalidLoginRejected, connectionErrorShown, backendReachable: invalidLoginRejected, launcherRecoveries,
+    authenticatedMailTest: "No test account supplied; deployment compatibility is checked separately" };
 } catch (error) {
   try {
     const xml = dump();
