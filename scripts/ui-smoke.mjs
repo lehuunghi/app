@@ -72,10 +72,10 @@ try {
     await page.locator("#u").fill("demo");
     await page.locator("#p").fill("demo");
     await page.locator("button[type=submit]").click();
-    const ownDevice = await page.evaluate(async () => (await (await fetch('/api/auth/session', { headers: { 'x-requested-with': 'ihasmail' } })).json()).ihasmail?.remember);
-    if (ownDevice !== true) throw new Error("Login did not default to a private device");
     await visible(page, ".workspace-app");
     await visible(page, ".msg-row");
+    const ownDevice = await page.evaluate(async () => (await (await fetch('/api/auth/session', { headers: { 'x-requested-with': 'ihasmail' } })).json()).ihasmail?.remember);
+    if (ownDevice !== true) throw new Error("Login did not default to a private device");
     console.log("UI " + prefix + ": demo inbox loaded");
     if (!adminFixtureApplied) throw new Error("Administrator account fixture was not applied");
     await page.getByRole("button", { name: /^(Account|Tài khoản)$/ }).click();
