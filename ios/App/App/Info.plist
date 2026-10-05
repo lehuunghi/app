@@ -2,6 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSCameraUsageDescription</key><string>Quét mã QR để cho phép đăng nhập webmail trên máy tính.</string>
   <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.lehuunghi.webmail.offline</string></array>
   <key>UIBackgroundModes</key><array><string>fetch</string><string>remote-notification</string></array>
   <key>CAPACITOR_DEBUG</key>

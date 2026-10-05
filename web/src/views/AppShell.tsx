@@ -1,3 +1,6 @@
+import { isNativeApp } from "@/lib/mobile/config";
+import { PhoneQrLogin } from "./PhoneQrLogin";
+import { QrCode as QrIcon } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { Calendar, ChevronsUpDown, FolderOpen, HelpCircle, LogOut, Mail, Menu as MenuIcon, Moon, PenSquare, Plus, RefreshCw, Settings, Sun, Upload, Users, X } from "lucide-react";
@@ -62,6 +65,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const sidebarRef = useRef<HTMLElement>(null);
   const shownSidebarWidth = liveSidebarWidth ?? sidebarWidth;
   const [drawer, setDrawer] = useState(false);
+  const [qrLoginOpen, setQrLoginOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const openCompose = useCompose((s) => s.open);
   const openShare = useCompose((s) => s.openFromShare);
@@ -181,11 +185,13 @@ export function AppShell({ children }: { children: ReactNode }) {
             <MenuSep />
             <MenuItem icon={<Settings size={16} />} label={t("Settings")} onClick={() => navigate("/settings")} />
             <MenuItem icon={<RefreshCw size={16} />} label={t("Refresh")} onClick={() => window.location.reload()} />
+            {isNativeApp() && <MenuItem icon={<QrIcon size={16} />} label={t("Scan QR to sign in to webmail")} onClick={() => { acctMenu.close(); setQrLoginOpen(true); }} />}
             <MenuItem icon={<LogOut size={16} />} label={t("Sign out")} onClick={() => void logout()} />
           </Popover>
         </div>
       </header>
 
+      {qrLoginOpen && <PhoneQrLogin onClose={() => setQrLoginOpen(false)} />}
       <div
         className={`app-body ${collapsed && !isMobile ? "collapsed" : ""} ${liveSidebarWidth != null ? "resizing" : ""}`}
         style={shownSidebarWidth != null && !isMobile ? ({ "--sidebar-w": `${shownSidebarWidth}px` } as React.CSSProperties) : undefined}

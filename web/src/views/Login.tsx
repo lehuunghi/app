@@ -1,3 +1,5 @@
+import { BrowserQrLogin } from "./QrLogin";
+import { isNativeApp } from "@/lib/mobile/config";
 import { useEffect, useState, type FormEvent } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { useSession } from "@/store/session";
@@ -27,6 +29,7 @@ export function LoginPage() {
       .catch(() => { /* the default stands */ });
     return () => { live = false; };
   }, []);
+  const [qrMode, setQrMode] = useState(false);
   const [username, setUsername] = useState(() => localStorage.getItem("ihasmail:lastUser") ?? "");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -65,6 +68,8 @@ export function LoginPage() {
             <p>{t("Use your account to access your workspace.")}</p>
           </div>
           <div className="login-fields">
+            {!isNativeApp() && <div className="login-mode-tabs"><button className="btn" type="button" aria-pressed={!qrMode} onClick={() => setQrMode(false)}>{t("Sign in with email")}</button><button className="btn" type="button" aria-pressed={qrMode} onClick={() => setQrMode(true)}>{t("Sign in with QR")}</button></div>}
+            {qrMode ? <BrowserQrLogin /> : <>
             {error && <div className="error-box mb-16" role="alert">{error}</div>}
             <div className="field">
               <label htmlFor="u">{t("Email or username")}</label>
@@ -84,6 +89,7 @@ export function LoginPage() {
                 {busy && <span className="spinner" />}{busy ? t("Signing in…") : t("Sign in")}
               </button>
             </div>
+            </>}
           </div>
         </form>
         <footer className="login-footer">
