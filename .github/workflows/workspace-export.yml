@@ -1,0 +1,53 @@
+name: Prepare native notification workspace
+on:
+  push:
+    branches: [work-notifications-20261005]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 442a98e83c737b12323bdfb5a1d567b1532fd0f8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Package source and locked dependencies
+        run: |
+          tar --exclude='./.git' --exclude='./node_modules' --exclude='*/node_modules' -czf ../workspace-source.tgz .
+          find . -name node_modules -type d -prune -print0 | tar --null -T - -czf ../workspace-deps.tgz
+          split -b 16M ../workspace-deps.tgz ../deps-part-
+          ls -lh ../workspace-source.tgz ../deps-part-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-source
+          path: ../workspace-source.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-deps-aa
+          path: ../deps-part-aa
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-deps-ab
+          path: ../deps-part-ab
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-deps-ac
+          path: ../deps-part-ac
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-deps-ad
+          path: ../deps-part-ad
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        with:
+          name: workspace-deps-ae
+          path: ../deps-part-ae
+          if-no-files-found: ignore
