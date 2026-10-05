@@ -21,6 +21,7 @@ import { offerShare } from "./ShareOffer";
 import { TranslateBoundary } from "@/ui/TranslateBoundary";
 import { t } from "@/lib/i18n";
 import { AdminNav } from "./admin/AdminNav";
+import { OfflineBanner } from "@/lib/offline/ui";
 
 // The other sections' sidebars load with the section, as their views already do.
 const FilesTree = lazy(() => import("./files/FilesTree").then((m) => ({ default: m.FilesTree })));
@@ -287,7 +288,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           outside this and carry on -- so recovery is a pane blinking rather
           than the app disappearing.
         */}
-        <main className="main"><TranslateBoundary>{children}</TranslateBoundary></main>
+        <main className="main"><OfflineBanner /><TranslateBoundary>{children}</TranslateBoundary></main>
       </div>
 
       {isMobile && (

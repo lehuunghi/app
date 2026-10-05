@@ -7,6 +7,7 @@ import type { NativeProvider, Platform } from "./nativePushProviders.js";
 import type { MailWatch } from "./nativeMailWatch.js";
 
 interface Device {
+  offlineSync?: boolean;
   key: string;
   installation: string;
   sessionId: string;
@@ -22,7 +23,7 @@ export class NativePushError extends Error {
   constructor(public status: 400 | 401 | 409 | 503, public code: string) { super(code); }
 }
 
-export function validRegistration(value: unknown): value is { installation: string; token: string; platform: Platform } {
+export function validRegistration(value: unknown): value is { installation: string; token: string; platform: Platform; offlineSync?: boolean } {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.installation === "string" && /^[a-f\d-]{36}$/i.test(v.installation)
@@ -109,7 +110,7 @@ export class NativePush {
     const latest = this.devices.get(key);
     if (!latestRequest || (latest && latest.sessionId !== session.id && latest.sessionCreatedAt > session.createdAt)) throw new NativePushError(409, "stale_device_session");
     const salt = randomBytes(32);
-    const d: Device = { key, installation: body.installation, sessionId: session.id, sessionCreatedAt: session.createdAt, account: session.account,
+    const d: Device = { offlineSync: body.offlineSync === true, key, installation: body.installation, sessionId: session.id, sessionCreatedAt: session.createdAt, account: session.account,
       salt: salt.toString("base64"), state: baseline.state,
       pending: previous?.sessionId === session.id ? previous.pending : undefined,
       // Background sending is opt-in and needs credentials with no cookie
@@ -171,7 +172,7 @@ export class NativePush {
       await this.save();
     }
     if (this.devices.get(d.key) !== d || !this.active(d)) return;
-    const result = await this.provider.send(c.platform, c.token, { binding: sha256(d.sessionId), emailId: d.pending.emailId });
+    const result = await this.provider.send(c.platform, c.token, { binding: sha256(d.sessionId), emailId: d.pending.emailId, ...(d.offlineSync ? { offlineSync: true } : {}) });
     if (this.devices.get(d.key) !== d) return;
     if (result === "invalid") this.devices.delete(d.key);
     else if (result === "sent") { d.state = d.pending.state; d.pending = undefined; }

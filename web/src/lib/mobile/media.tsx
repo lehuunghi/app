@@ -1,6 +1,16 @@
 import { useEffect, useState, type ImgHTMLAttributes } from "react";
 import { isNativeApiResource, isNativeApp } from "./config";
 import type { SanitizeResult } from "@/lib/text/html";
+import { client } from "@/jmap/client";
+
+async function nativeMediaBlob(input: string): Promise<Blob> {
+  const url = new URL(input);
+  const match = /\/api\/blob\/([^/]+)\/([^/]+)\//.exec(url.pathname);
+  if (match) return client.fetchBlob(decodeURIComponent(match[1]!), decodeURIComponent(match[2]!), url.searchParams.get("accept") || "application/octet-stream");
+  const response = await fetch(input, { credentials: "include" });
+  if (!response.ok) throw new Error("Media unavailable");
+  return response.blob();
+}
 
 export function useNativeResourceUrl(input: string | null): string | null {
   const [loaded, setLoaded] = useState<{ input: string; url: string } | null>(null);
@@ -8,9 +18,7 @@ export function useNativeResourceUrl(input: string | null): string | null {
     if (!input || !isNativeApiResource(input)) return;
     let live = true;
     let objectUrl: string | null = null;
-    void fetch(input, { credentials: "include" }).then(async (response) => {
-      if (!response.ok) throw new Error("Media unavailable");
-      const blob = await response.blob();
+    void nativeMediaBlob(input).then(async (blob) => {
       if (!live) return;
       objectUrl = URL.createObjectURL(blob);
       setLoaded({ input, url: objectUrl });
@@ -47,9 +55,7 @@ export function useNativeEmailMedia(input: SanitizeResult | null): SanitizeResul
     }
     void Promise.all([...urls].map(async (url) => {
       try {
-        const response = await fetch(url, { credentials: "include" });
-        if (!response.ok) return [url, ""] as const;
-        const blob = await response.blob();
+        const blob = await nativeMediaBlob(url);
         if (!live || !/^image\/(?!svg\+xml)/i.test(blob.type)) return [url, ""] as const;
         const local = URL.createObjectURL(blob);
         objectUrls.push(local);

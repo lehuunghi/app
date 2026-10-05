@@ -46,12 +46,15 @@ import { staticHandler } from "./static.js";
 import { NativePush, NativePushError } from "./nativePush.js";
 import { PushProviders } from "./nativePushProviders.js";
 import { watchNativeMail } from "./nativeMailWatch.js";
+import { OfflineOperationJournal, OfflineOperationError, validateOfflineRequest, markOfflineCreations, reconcileOfflineSend, type OfflineRequest, type OfflineResponse } from "./offlineOperations.js";
+import { pullOffline, validatePull } from "./offlinePull.js";
 
 type Env = { Variables: { session: LiveSession } };
 
 export const sessions: SessionBackend = new SessionStore(config.sessionFile);
 export const nativePush = new NativePush(sessions, new PushProviders(), watchNativeMail,
   process.env.NATIVE_PUSH_FILE ?? (config.sessionFile ? `${config.sessionFile}.native-push` : ""), config.appSecret);
+const offlineJournal = new OfflineOperationJournal(process.env.OFFLINE_OPERATIONS_DIR ?? (config.sessionFile ? `${config.sessionFile}.offline` : ""), config.appSecret);
 const loginLimiter = new RateLimiter(config.loginRateLimit, 15 * 60_000);
 /*
  * The backstop that is never refunded.
@@ -228,7 +231,7 @@ const csrfGuard: MiddlewareHandler = async (c, next) => {
  * the push callback has its own limit ahead of this one.
  */
 const MAX_SMALL_BODY = 64 * 1024;
-const LARGE_BODY_ROUTE = /\/api\/(jmap$|upload\/)/;
+const LARGE_BODY_ROUTE = /\/api\/(jmap$|offline\/(jmap\/|pull$)|upload\/)/;
 const limitSmallBody = bodyLimit({ maxSize: MAX_SMALL_BODY, onError: (c) => c.json({ error: "too_large" }, 413) });
 const smallBodies: MiddlewareHandler = (c, next) => (LARGE_BODY_ROUTE.test(c.req.path) ? next() : limitSmallBody(c, next));
 
@@ -699,6 +702,91 @@ export function createApp(basePath = config.basePath, nativeNotifications = nati
   });
 
   // ---------- JMAP API proxy ----------
+  api.post("/offline/pull", requireSession, apiRateLimited, async (c) => {
+    const session = c.get("session");
+    if (!session.remember) return c.json({ error: "offline_needs_own_device" }, 403);
+    try {
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const input = validatePull(JSON.parse(c.req.raw.body ? await readGated(c.req.raw.body) : ""), upstream.accounts);
+      const result = await pullOffline(input, async (body) => {
+        const response = await fetch(absoluteUpstream(upstream.apiUrl, upstream.baseUrl), { method: "POST", headers: { authorization: session.authorization, "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(config.upstreamTimeout) });
+        if (response.status === 401) throw new OfflineOperationError("unauthenticated", 401);
+        if (!response.ok) throw new Error("upstream_unavailable");
+        return await response.json() as OfflineResponse;
+      });
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof OfflineOperationError) return c.json({ error: err.code }, err.status as 400 | 401 | 403 | 409 | 503);
+      if (err instanceof SyntaxError) return c.json({ error: "bad_request" }, 400);
+      return upstreamFailure(c, err);
+    }
+  });
+
+  api.post("/offline/jmap/:operation", requireSession, apiRateLimited, async (c) => {
+    const session = c.get("session");
+    if (!session.remember) return c.json({ error: "offline_needs_own_device" }, 403);
+    try {
+      if (!(c.req.header("content-type") ?? "").toLowerCase().startsWith("application/json")) return c.json({ error: "unsupported_media_type" }, 415);
+      const raw = c.req.raw.body ? await readGated(c.req.raw.body) : "";
+      const input = JSON.parse(raw) as { request?: unknown; base?: Record<string, { mailboxIds: Record<string, boolean>; keywords: Record<string, boolean> }> };
+      const upstream = await getUpstreamSession(session.id, session.authorization, upstreamFor(session.username));
+      const request = validateOfflineRequest(input.request, upstream.accounts);
+      const accountId = String(request.methodCalls[0]![1].accountId);
+      if (!(upstream.accounts[accountId] as { isPersonal?: boolean } | undefined)?.isPersonal) return c.json({ error: "offline_personal_account_only" }, 403);
+      const invoke = async (body: OfflineRequest): Promise<OfflineResponse> => {
+        const response = await fetch(absoluteUpstream(upstream.apiUrl, upstream.baseUrl), {
+          method: "POST", headers: { authorization: session.authorization, "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify(body), signal: AbortSignal.timeout(config.upstreamTimeout),
+        });
+        if (response.status === 401) throw new OfflineOperationError("unauthenticated", 401);
+        if (!response.ok) throw new Error("upstream_unavailable");
+        const result = await response.json() as OfflineResponse;
+        if (!Array.isArray(result.methodResponses)) throw new Error("invalid_upstream_response");
+        return result;
+      };
+      const op = c.req.param("operation");
+      const payload = { request, base: input.base ?? {} };
+      const result = await offlineJournal.execute(`${session.username}\0${upstream.baseUrl}\0${accountId}`, op, payload, async (dispatched) => {
+        const body = markOfflineCreations(request, op);
+        const base = input.base ?? {};
+        const ids = Object.keys(base);
+        if (ids.length) {
+          const found = await invoke({ using: request.using, methodCalls: [["Email/get", { accountId, ids, properties: ["id", "mailboxIds", "keywords"] }, "preflight"]] });
+          const got = found.methodResponses.find((r) => r[0] === "Email/get");
+          if (!got) throw new Error("upstream_unavailable");
+          const emails = new Map(((got[1].list ?? []) as Array<{ id: string; mailboxIds: Record<string, boolean>; keywords: Record<string, boolean> }>).map((e) => [e.id, e]));
+          for (const [name, args] of body.methodCalls) if (name === "Email/set") {
+            for (const [id, patch] of Object.entries((args.update ?? {}) as Record<string, Record<string, unknown>>)) {
+              const current = emails.get(id), previous = base[id];
+              if (!current || !previous) throw new OfflineOperationError("offline_conflict");
+              for (const [path, wanted] of Object.entries(patch)) {
+                if (path === "mailboxIds" || path === "keywords") {
+                  const field = path;
+                  const canonical = (v: Record<string, boolean>) => JSON.stringify(Object.keys(v).filter((k) => v[k]).sort());
+                  if (canonical(current[field]) !== canonical(previous[field]) && canonical(current[field]) !== canonical((wanted ?? {}) as Record<string, boolean>)) throw new OfflineOperationError("offline_conflict");
+                } else if (path.startsWith("keywords/") || path.startsWith("mailboxIds/")) {
+                  const [field, ...segments] = path.split("/");
+                  const key = segments.join("/").replace(/~1/g, "/").replace(/~0/g, "~");
+                  const f = field as "keywords" | "mailboxIds";
+                  if (Boolean(current[f][key]) !== Boolean(previous[f][key]) && Boolean(current[f][key]) !== Boolean(wanted)) throw new OfflineOperationError("offline_conflict");
+                }
+              }
+            }
+          }
+          const first = body.methodCalls.find(([name]) => name === "Email/set");
+          if (first) first[1].ifInState = got[1].state;
+        }
+        await dispatched();
+        return invoke(body);
+      }, () => reconcileOfflineSend(request, op, invoke));
+      return c.json(result);
+    } catch (err) {
+      if (err instanceof OfflineOperationError) return c.json({ error: err.code }, err.status as 400 | 401 | 403 | 409 | 503);
+      if (err instanceof SyntaxError) return c.json({ error: "bad_request" }, 400);
+      return upstreamFailure(c, err);
+    }
+  });
+
   api.post("/jmap", requireSession, apiRateLimited, async (c) => {
     const session = c.get("session");
     const ct = c.req.header("content-type") ?? "";
@@ -1028,6 +1116,7 @@ function sessionExtras(session: LiveSession, info: AccountInfo = { locale: null,
       sessionId: session.id,
       loginName: session.username,
       remember: session.remember,
+      offlineSync: session.remember && Boolean(process.env.OFFLINE_OPERATIONS_DIR ?? config.sessionFile) ? 1 : undefined,
       /** Locale configured for the account in Stalwart's directory, if readable. */
       userLocale: info.locale,
       /**

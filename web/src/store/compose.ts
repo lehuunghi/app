@@ -593,6 +593,7 @@ export const useCompose = create<ComposeState>((set, get) => ({
       a.abort = abort;
       client
         .upload(accountId, a.file, {
+          queueForMail: true,
           type: a.type,
           signal: abort.signal,
           onProgress: (loaded, total) => patchAtt(key, a.id, { progress: Math.round((loaded / total) * 100) }, set),
@@ -653,7 +654,7 @@ export const useCompose = create<ComposeState>((set, get) => ({
       const node = nodes[i]!;
       try {
         const blob = await client.fetchBlob(node.accountId, node.blobId, a.type);
-        const up = await client.upload(accountId, blob, { type: a.type });
+        const up = await client.upload(accountId, blob, { type: a.type, queueForMail: true });
         patchAtt(key, a.id, { blobId: up.blobId, progress: 100, size: up.size || a.size }, set);
       } catch (err) {
         patchAtt(key, a.id, { error: (err as Error).message || translate("Could not attach") }, set);
@@ -683,6 +684,21 @@ export const useCompose = create<ComposeState>((set, get) => ({
     const d = get().drafts.find((x) => x.key === key);
     if (!d) return;
     const delay = settings().undoSendSeconds;
+    if (client.offline?.manifest?.accountId === useMail.getState().accountId && client.offline.manifest.session.ihasmail?.offlineSync) {
+      const readyAt = Date.now() + delay * 1000;
+      try {
+        const operation = await sendInternal(d, get, readyAt);
+        set((s) => ({ drafts: s.drafts.filter((x) => x.key !== key), activeKey: s.activeKey === key ? null : s.activeKey }));
+        const timer = autosaveTimers.get(key); if (timer) window.clearTimeout(timer); autosaveTimers.delete(key);
+        toast.show(translate("Queued in Outbox. It will send when connected."), { duration: Math.max(5000, delay * 1000),
+          action: operation ? { label: translate("Undo"), onClick: async () => {
+            try { await client.offline?.cancel(operation); set((s) => ({ drafts: [...s.drafts, { ...d, sending: false }], activeKey: d.key })); }
+            catch { toast.error(translate("This message is already being sent or needs verification.")); }
+          } } : undefined });
+        window.setTimeout(() => void client.offline?.sync(), Math.max(0, readyAt - Date.now()));
+      } catch (err) { toast.error((err as Error).message); }
+      return;
+    }
     // A schedule the user left sitting until it passed is just a send now.
     const scheduling = d.sendAt !== null && d.sendAt > Date.now();
     // Hide the composer immediately; actually send after the undo window.
@@ -874,7 +890,7 @@ export async function buildEmailObject(d: Draft, opts: { forSend: boolean; mailb
       const bin = atob(m[2]!);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const up = await client.upload(accountId, new Blob([bytes], { type: m[1]! }), { type: m[1]! });
+      const up = await client.upload(accountId, new Blob([bytes], { type: m[1]! }), { type: m[1]!, queueForMail: true });
       const cid = `${uid("img")}@ihasmail`;
       img.setAttribute("src", `cid:${cid}`);
       relatedInline.push({ blobId: up.blobId, type: m[1]!, name: `image.${m[1]!.split("/")[1]?.replace("jpeg", "jpg") ?? "png"}`, cid });
@@ -1008,7 +1024,7 @@ export function buildSubmission(opts: {
   };
 }
 
-async function sendInternal(d: Draft, _get: () => ComposeState): Promise<void> {
+async function sendInternal(d: Draft, _get: () => ComposeState, readyAt?: number): Promise<string | null> {
   const mail = useMail.getState();
   const accountId = mail.accountId!;
   const ident = mail.identities.find((i) => i.id === d.identityId) ?? mail.identities[0];
@@ -1016,9 +1032,11 @@ async function sendInternal(d: Draft, _get: () => ComposeState): Promise<void> {
   if (d.attachments.some((a) => !a.blobId && !a.error)) throw new Error(translate("Attachments are still uploading"));
   const scheduled = d.sendAt !== null && d.sendAt > Date.now();
   const scheduledId = scheduled ? await ensureScheduledMailbox() : null;
-  const email = await buildEmailObject(d, { forSend: true, mailboxId: scheduledId });
   const sentId = mail.roleId("sent");
   const draftsId = mail.roleId("drafts");
+  const nativeQueue = client.offline?.manifest?.session.ihasmail?.offlineSync && client.offline.manifest.accountId === accountId;
+  const email = await buildEmailObject(d, { forSend: true, mailboxId: scheduledId ?? (nativeQueue ? draftsId : null) });
+  if (nativeQueue) email.keywords = { $draft: true, $seen: true };
   const rcpts = uniqueAddresses([...d.to, ...d.cc, ...d.bcc]).map((a) => ({ email: a.email }));
   if (!rcpts.length) throw new Error(translate("No recipients"));
   const sub = buildSubmission({
@@ -1042,12 +1060,13 @@ async function sendInternal(d: Draft, _get: () => ComposeState): Promise<void> {
   if (d.relatedEmailId && d.relatedKeyword) {
     calls.push(["Email/set", { accountId, update: { [d.relatedEmailId]: { [`keywords/${d.relatedKeyword}`]: true } } }, "k"]);
   }
-  const res = await client.chain(calls, { allowErrors: true });
+  const res = await client.chain(calls, { allowErrors: true, readyAt });
   const e = res.get("e")?.[0] as unknown as SetResponse<Email> & { __error?: { type: string; description?: string } };
   if (e.__error) throw new Error(setErrorMessage(e.__error));
   if (e.notCreated?.m) throw new Error(setErrorMessage(e.notCreated.m));
-  const s = res.get("s")?.[0] as unknown as SetResponse & { __error?: { type: string; description?: string } };
+  const s = res.get("s")?.[0] as unknown as SetResponse & { __error?: { type: string; description?: string }; __offlineQueued?: string };
   if (s.__error) throw new Error(setErrorMessage(s.__error));
+  if (s.__offlineQueued) return s.__offlineQueued;
   if (s.notCreated?.s) {
     const err = s.notCreated.s;
     // Clean up the created (unsent) email so it doesn't linger in Sent.
@@ -1074,6 +1093,7 @@ async function sendInternal(d: Draft, _get: () => ComposeState): Promise<void> {
   }
   void mail.loadMailboxes();
   void mail.refreshList();
+  return null;
 }
 
 export { FULL_PROPS, BODY_PROPS };
@@ -1116,4 +1136,21 @@ useSession.subscribe((s) => {
     toast.dismiss(p.toastId);
   }
   useCompose.setState({ drafts: [], activeKey: null, pendingSends: {} });
+});
+
+/** Restore only the current encrypted account; a previous session's composers never leak. */
+export async function restoreOfflineComposers(): Promise<void> {
+  const engine = client.offline;
+  if (!engine?.manifest || useCompose.getState().drafts.length) return;
+  const scope = engine.scope;
+  const saved = await engine.readEditors<{ drafts: Draft[]; activeKey: string | null }>();
+  if (!saved || scope !== client.offline?.scope || useSession.getState().status !== "authenticated") return;
+  const drafts = saved.drafts.map((d) => ({ ...d, saving: false, sending: false, attachments: d.attachments.map((a) => ({ ...a, progress: a.blobId ? 100 : 0, error: a.blobId ? a.error : translate("Please attach this file again.") })) }));
+  useCompose.setState({ drafts, activeKey: saved.activeKey });
+}
+useCompose.subscribe((state, previous) => {
+  const engine = client.offline;
+  if (!engine?.manifest || state.drafts === previous.drafts || useSession.getState().status !== "authenticated") return;
+  const drafts = state.drafts.map((d) => ({ ...d, attachments: d.attachments.map(({ file: _file, abort: _abort, ...a }) => a) }));
+  void engine.writeEditors({ drafts, activeKey: state.activeKey }).catch(() => toast.error(translate("Could not save the draft on this device.")));
 });

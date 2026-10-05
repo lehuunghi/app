@@ -26,6 +26,8 @@ import { plural, t, useLanguageVersion, whenLanguageReady } from "@/lib/i18n";
 import { confirmLeaveUnsaved, hasUnsavedChanges } from "@/lib/unsavedChanges";
 import { BASE_PATH, withBase } from "@/lib/basePath";
 import { DEFAULT_APP_NAME } from "@/lib/brand";
+import { offline, startOfflineSync } from "@/lib/offline/runtime";
+import { restoreOfflineComposers } from "@/store/compose";
 
 const ContactsView = lazy(() => import("@/views/contacts/ContactsView").then((m) => ({ default: m.ContactsView })));
 const CalendarView = lazy(() => import("@/views/calendar/CalendarView").then((m) => ({ default: m.CalendarView })));
@@ -201,6 +203,10 @@ function AuthedApp() {
   useEffect(() => {
     if (!accountId) return;
     const mail = useMail.getState();
+    void restoreOfflineComposers();
+    startOfflineSync();
+    const offlineUpdate = () => { void mail.loadMailboxes(); void mail.loadIdentities(); void mail.refreshList(); };
+    window.addEventListener("webmail:offline-updated", offlineUpdate);
     void mail.loadMailboxes();
     void mail.loadIdentities();
     void mail.loadQuota();
@@ -228,6 +234,7 @@ function AuthedApp() {
     const pending = new Map<string, Set<string>>();
     let timer: number | null = null;
     const unsub = push.subscribe((acct, type) => {
+      if (acct === offline.manifest?.accountId && (type === "Email" || type === "Mailbox")) startOfflineSync();
       const set = pending.get(acct) ?? new Set<string>();
       set.add(type);
       pending.set(acct, set);
@@ -256,6 +263,7 @@ function AuthedApp() {
       unsubState();
       window.clearInterval(poll);
       push.stop();
+      window.removeEventListener("webmail:offline-updated", offlineUpdate);
     };
   }, [accountId]);
 

@@ -15,8 +15,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     }
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        OfflineSync.foreground = application.applicationState == .active
+        OfflineSync.register()
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--offline-store-smoke") { runOfflineStoreSmoke() }
+        #endif
         return true
+    }
+    func application(_ application: UIApplication, didReceiveRemoteNotification userInfo: [AnyHashable: Any], fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void) {
+        OfflineSync.foreground = application.applicationState == .active
+        OfflineDatabase.queue.async {
+            guard let data = try? OfflineDatabase.shared.read("profile", "native"), let json = try? JSONSerialization.jsonObject(with: Data(data.utf8)) as? [String: Any], let binding = userInfo["binding"] as? String, json["binding"] as? String == binding else { DispatchQueue.main.async { completionHandler(.noData) }; return }
+            OfflineSync.refresh(completionHandler)
+        }
     }
 
     func applicationWillResignActive(_ application: UIApplication) {

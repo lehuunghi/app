@@ -15,12 +15,15 @@ import { ShortcutsSettings } from "./ShortcutsSettings";
 import { CalendarSettings } from "./CalendarSettings";
 import { t } from "@/lib/i18n";
 import { DEFAULT_SOURCE_URL } from "@/lib/source";
+import { isNativeApp } from "@/lib/mobile/config";
+import { OfflineSettings } from "@/lib/offline/ui";
 
 const FiltersSettings = lazy(() => import("./FiltersSettings").then((m) => ({ default: m.FiltersSettings })));
 const VacationSettings = lazy(() => import("./VacationSettings").then((m) => ({ default: m.VacationSettings })));
 
 const SECTIONS: Array<{ id: string; label: string; icon: ReactNode; el: ReactNode }> = [
   { id: "general", label: "General", icon: <SettingsIcon size={18} />, el: <GeneralSettings /> },
+  { id: "offline", label: "Offline mail", icon: <Folder size={18} />, el: <OfflineSettings /> },
   { id: "appearance", label: "Appearance", icon: <Palette size={18} />, el: <AppearanceSettings /> },
   { id: "identities", label: "Identities & signatures", icon: <PenLine size={18} />, el: <IdentitiesSettings /> },
   { id: "filters", label: "Filters & rules", icon: <Filter size={18} />, el: <FiltersSettings /> },
@@ -38,12 +41,13 @@ const SECTIONS: Array<{ id: string; label: string; icon: ReactNode; el: ReactNod
 export function SettingsView({ section }: { section?: string }) {
   const [, navigate] = useLocation();
   if (section === "about") return <Redirect to="/settings/general" />;
-  const current = SECTIONS.find((s) => s.id === section);
+  const sections = SECTIONS.filter((s) => s.id !== "offline" || isNativeApp());
+  const current = sections.find((s) => s.id === section);
   return (
     <div className={`settings-layout ${section ? "section" : "root"}`}>
       <nav className="settings-nav" aria-label={t("Settings")}>
         <div className="nav-section" style={{ paddingLeft: 8 }}><span>{t("Settings")}</span></div>
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <Link key={s.id} href={`/settings/${s.id}`} className={`nav-item ${section === s.id ? "active" : ""}`}>
             {s.icon}
             <span className="nav-label">{t(s.label)}</span>
