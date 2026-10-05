@@ -219,8 +219,13 @@ export class JmapClient {
     const batch = this.pending;
     this.pending = [];
     const max = this.maxCallsInRequest;
-    for (let i = 0; i < batch.length; i += max) {
-      void this.sendBatch(batch.slice(i, i + max));
+    // Independent calls from calendar/contacts must not force cached mail to
+    // use the network. Explicit chains still keep their original call order.
+    const groups = this.offline?.manifest
+      ? [batch.filter((p) => this.offline!.handles([[p.method, p.args, "route"]])), batch.filter((p) => !this.offline!.handles([[p.method, p.args, "route"]]))]
+      : [batch];
+    for (const group of groups) for (let i = 0; i < group.length; i += max) {
+      void this.sendBatch(group.slice(i, i + max));
     }
   }
 

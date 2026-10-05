@@ -50,6 +50,27 @@ function resolveReferences(value: unknown, creations: Record<string, Id>): unkno
   if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k.startsWith("#") ? creations[k.slice(1)] ?? k : k, resolveReferences(v, creations)]));
   return value;
 }
+function resolveResultReferences(args: Record<string, unknown>, responses: Invocation[]): Record<string, unknown> {
+  const pointer = (value: unknown, parts: string[]): unknown => {
+    if (!parts.length) return value;
+    const [part, ...rest] = parts;
+    if (part === "*") {
+      if (!Array.isArray(value)) throw new Error("invalidResultReference");
+      return value.flatMap((item) => { const selected = pointer(item, rest); return Array.isArray(selected) ? selected : [selected]; });
+    }
+    if (!value || typeof value !== "object" || !(part! in value)) throw new Error("invalidResultReference");
+    return pointer((value as Record<string, unknown>)[part!], rest);
+  };
+  const resolved: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (!key.startsWith("#")) { resolved[key] = value; continue; }
+    const ref = value as { resultOf?: string; name?: string; path?: string } | null;
+    const response = responses.find(([name, , id]) => name === ref?.name && id === ref?.resultOf);
+    if (!response || typeof ref?.path !== "string" || !ref.path.startsWith("/")) throw new Error("invalidResultReference");
+    resolved[key.slice(1)] = pointer(response[1], ref.path.slice(1).split("/").map((part) => part.replace(/~1/g, "/").replace(/~0/g, "~")));
+  }
+  return resolved;
+}
 
 /** Native account repository. UI mutations and their outbox entry share a disk transaction. */
 export class OfflineEngine {
@@ -171,8 +192,37 @@ export class OfflineEngine {
       }
       return this.exclusive(() => this.queue(body, options.readyAt));
     }
+    const wantsBody = (args: Record<string, unknown>) => Boolean(args.fetchHTMLBodyValues || args.fetchTextBodyValues) || (args.properties as string[] | undefined)?.includes("bodyValues");
+    // A conversation chain may ask Thread/get for fresh membership, then use
+    // cached bodies. Resolve its references before deciding which ids to fetch.
+    if (body.methodCalls.length > 1 && body.methodCalls.some(([name, args]) => name === "Email/get" && wantsBody(args))) {
+      const methodResponses: Invocation[] = [];
+      for (const [name, original, id] of body.methodCalls) {
+        let args: Record<string, unknown>;
+        try { args = resolveResultReferences(original, methodResponses); }
+        catch { methodResponses.push(["error", { type: "invalidResultReference" }, id]); continue; }
+        const response = await this.request({ ...body, methodCalls: [[name, args, id]] });
+        methodResponses.push(...response.methodResponses);
+      }
+      return { methodResponses, sessionState: this.manifest!.session.state };
+    }
+    const only = body.methodCalls.length === 1 ? body.methodCalls[0] : undefined;
+    if (only?.[0] === "Email/get" && wantsBody(only[1]) && Array.isArray(only[1].ids)) {
+      const ids = only[1].ids as Id[], cached = ids.filter((id) => this.emails.get(id)?.full);
+      if (cached.length && cached.length < ids.length) {
+        const cachedResult = await this.read({ ...body, methodCalls: [[only[0], { ...only[1], ids: cached }, only[2]]] });
+        const result = await this.request({ ...body, methodCalls: [[only[0], { ...only[1], ids: ids.filter((id) => !cached.includes(id)) }, only[2]]] });
+        const response = result.methodResponses[0];
+        if (response?.[0] === "Email/get") {
+          const list = [...(cachedResult.methodResponses[0]![1].list as Email[]), ...(response[1].list as Email[])];
+          response[1].list = ids.flatMap((id) => list.filter((email) => email.id === id));
+          response[1].notFound = ids.filter((id) => !list.some((email) => email.id === id));
+        }
+        return result;
+      }
+    }
     const allFullGets = body.methodCalls.every(([name, args]) => name === "Email/get" && Array.isArray(args.ids) && args.ids.length > 0
-      && (args.ids as Id[]).every((id) => this.emails.get(id)?.full));
+      && wantsBody(args) && (args.ids as Id[]).every((id) => this.emails.get(id)?.full));
     const localRead = body.methodCalls.every(([, args]) => json(args.filter ?? args.ids ?? {}).includes(LOCAL_ID));
     if (!this.status.online || allFullGets || localRead) return this.read(body);
     const epoch = this.epoch;
@@ -190,7 +240,10 @@ export class OfflineEngine {
   private async read(body: OfflineOperation["request"]): Promise<JmapResponse> {
     const m = this.manifest!;
     const methodResponses: Invocation[] = [];
-    for (const [name, args, callId] of body.methodCalls) {
+    for (const [name, original, callId] of body.methodCalls) {
+      let args: Record<string, unknown>;
+      try { args = resolveResultReferences(original, methodResponses); }
+      catch { methodResponses.push(["error", { type: "invalidResultReference" }, callId]); continue; }
       let response: Record<string, unknown>;
       const common = { accountId: m.accountId, state: m.emailState ?? "offline-initial" };
       if (name === "Email/get") {

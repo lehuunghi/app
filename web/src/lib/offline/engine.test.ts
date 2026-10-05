@@ -3,6 +3,7 @@ import { webcrypto } from "node:crypto";
 import type { Email, Invocation, JmapResponse, JmapSession, Mailbox } from "@/jmap/types";
 import { OfflineEngine } from "./engine";
 import { MemoryOfflineStorage } from "./storage";
+import { JmapClient } from "@/jmap/client";
 import type { OfflineOperation, OfflineTransport } from "./types";
 
 const session = { username: "reader@example.test", capabilities: { "urn:ietf:params:jmap:core": {}, "urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:submission": {} },
@@ -20,6 +21,7 @@ function fakeServer() {
     for (const [name, args, id] of body.methodCalls) {
       let result: Record<string, unknown>;
       if (name === "Mailbox/get") result = { accountId: "a", state: "M1", list: structuredClone(mailboxes), notFound: [] };
+      else if (name === "Thread/get") result = { accountId: "a", state, list: (args.ids as string[]).map((id) => ({ id, emailIds: [...emails.values()].filter((email) => email.threadId === id).map((email) => email.id) })), notFound: [] };
       else if (name === "Email/query") result = { accountId: "a", queryState: state, ids: [...emails.keys()].slice(Number(args.position ?? 0), Number(args.position ?? 0) + Number(args.limit ?? 100)), position: args.position ?? 0 };
       else if (name === "Email/get") {
         const ids = args.ids as string[];
@@ -78,6 +80,54 @@ const body = (methodCalls: Invocation[]) => ({ using: Object.keys(session.capabi
 
 beforeEach(() => { vi.stubGlobal("crypto", webcrypto); });
 describe("durable offline mail", () => {
+  it("downloads only missing bodies when an online conversation contains already cached mail", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    server.emails.set("e2", { ...email("e2"), threadId: "t-e1" });
+    server.request.mockClear();
+    const result = await engine.request(body([
+      ["Thread/get", { accountId: "a", ids: ["t-e1"] }, "thread"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "thread", name: "Thread/get", path: "/list/*/emailIds" }, fetchTextBodyValues: true }, "mail"],
+    ]));
+    expect((result.methodResponses[1]![1].list as Email[]).map((email) => email.id)).toEqual(["e1", "e2"]);
+    const fullGets = server.request.mock.calls.flatMap(([request]) => request.methodCalls.filter(([name, args]) => name === "Email/get" && args.fetchTextBodyValues));
+    expect(fullGets.map((call) => call[1].ids)).toEqual([["e2"]]);
+  });
+  it("serves cached mail even when a simultaneous non-mail request needs the unavailable network", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); await engine.restore();
+    const client = new JmapClient(); client.offline = engine; client.session = session;
+    const fetch = globalThis.fetch;
+    try {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+      const results = await Promise.allSettled([
+        client.call<{ list: Mailbox[] }>("Mailbox/get", { accountId: "a", ids: null }),
+        client.call("Quota/get", { accountId: "a", ids: null }),
+      ]);
+      expect(results[0].status).toBe("fulfilled");
+      if (results[0].status === "fulfilled") expect(results[0].value.list.some((box) => box.id === "inbox")).toBe(true);
+      expect(results[1].status).toBe("rejected");
+    } finally { vi.stubGlobal("fetch", fetch); }
+  });
+  it("opens cached conversations and query pages using chained JMAP result references", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); await engine.restore();
+    server.request.mockClear();
+    const conversation = await engine.request(body([
+      ["Thread/get", { accountId: "a", ids: ["t-e1"] }, "thread"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "thread", name: "Thread/get", path: "/list/*/emailIds" }, fetchTextBodyValues: true }, "mail"],
+    ]));
+    expect((conversation.methodResponses[1]![1].list as Email[])[0]?.bodyValues?.text?.value).toBe("Persist me");
+    const page = await engine.request(body([
+      ["Email/query", { accountId: "a", filter: { inMailbox: "inbox" } }, "query"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "query", name: "Email/query", path: "/ids" } }, "mail"],
+      ["Thread/get", { accountId: "a", "#ids": { resultOf: "mail", name: "Email/get", path: "/list/*/threadId" } }, "thread"],
+    ]));
+    expect((page.methodResponses[2]![1].list as { emailIds: string[] }[])[0]?.emailIds).toEqual(["e1"]);
+    const invalid = await engine.request(body([["Email/get", { accountId: "a", "#ids": { resultOf: "missing", name: "Thread/get", path: "/list/*/emailIds" } }, "bad"]]));
+    expect(invalid.methodResponses[0]).toEqual(["error", { type: "invalidResultReference" }, "bad"]);
+    expect(server.request).not.toHaveBeenCalled();
+  });
   it("keeps pending folder changes across server refresh and restores folders when cancelled", async () => {
     const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
     await engine.activate(session); await engine.sync();
