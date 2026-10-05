@@ -1,3 +1,4 @@
+import { QrLogins, newBrowserSecret } from "./qrLogin.js";
 import { Hono } from "hono";
 import type { Context, MiddlewareHandler } from "hono";
 import { getCookie, setCookie, deleteCookie } from "hono/cookie";
@@ -328,6 +329,79 @@ export function createApp(basePath = config.basePath, nativeNotifications = nati
       settingsPolicy: config.settingsPolicy,
     }),
   );
+
+  // ---------- QR sign-in: browser owns a private cookie; QR is only a public challenge. ----------
+  const qrLogins = new QrLogins();
+  const qrCookie = config.cookieName + "_qr";
+  const qrCookieOptions = { httpOnly: true, sameSite: "Strict" as const, secure: true, path: cookiePath, maxAge: 120 };
+  api.use("/auth/qr/*", async (c, next) => {
+    c.header("Cache-Control", "no-store");
+    if (!isSecureRequest(c) && !["localhost", "127.0.0.1", "[::1]"].includes(new URL(c.req.url).hostname)) return c.json({ error: "https_required" }, 400);
+    if (!loginFloodLimiter.check("qr|" + rateLimitKey(clientIp(c)))) return c.json({ error: "rate_limited" }, 429);
+    await next();
+  });
+  api.post("/auth/qr/create", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object" || (body.remember !== undefined && typeof body.remember !== "boolean")) return c.json({ error: "bad_request" }, 400);
+    const existingBrowser = getCookie(c, qrCookie);
+    const browser = existingBrowser && /^[A-Za-z0-9_-]{43}$/.test(existingBrowser) ? existingBrowser : newBrowserSecret();
+    try {
+      const row = qrLogins.create(browser, c.req.header("user-agent") ?? "", clientIp(c), body.remember !== false);
+      setCookie(c, qrCookie, browser, { ...qrCookieOptions, secure: isSecureRequest(c) });
+      return c.json({ id: row.id, code: row.code, expiresAt: row.expiresAt });
+    } catch { return c.json({ error: "rate_limited" }, 429); }
+  });
+  api.post("/auth/qr/inspect", requireSession, async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "bad_request" }, 400);
+    const { id } = body;
+    const row = qrLogins.get(id);
+    if (!row || row.sourceId || row.issuedCookie) return c.json({ error: "qr_expired" }, 410);
+    return c.json({ code: row.code, userAgent: row.userAgent, ip: row.ip, expiresAt: row.expiresAt });
+  });
+  api.post("/auth/qr/approve", requireSession, async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "bad_request" }, 400);
+    const { id } = body;
+    const source = c.get("session");
+    if (!qrLogins.approve(id, source.id, getCookie(c, config.cookieName)!)) return c.json({ error: "qr_expired" }, 410);
+    return c.json({ ok: true });
+  });
+  api.post("/auth/qr/cancel", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "bad_request" }, 400);
+    const { id } = body; qrLogins.cancel(id, getCookie(c, qrCookie));
+    return c.json({ ok: true });
+  });
+  api.post("/auth/qr/poll", async (c) => {
+    const body = await c.req.json().catch(() => null);
+    if (!body || typeof body !== "object") return c.json({ error: "bad_request" }, 400);
+    const { id } = body;
+    const row = qrLogins.browser(id, getCookie(c, qrCookie));
+    if (!row) return c.json({ error: "qr_expired" }, 410);
+    if (row.issuedCookie) {
+      const issued = sessions.resolve(row.issuedCookie);
+      if (!issued) return c.json({ error: "qr_expired" }, 410);
+      setSessionCookie(c, row.issuedCookie, issued.remember); return c.json({ status: "approved" });
+    }
+    if (!row.sourceCookie || row.busy) return c.json({ status: "pending" });
+    const source = sessions.resolve(row.sourceCookie);
+    if (!source || source.id !== row.sourceId) return c.json({ error: "qr_expired" }, 410);
+    row.busy = true;
+    try {
+      const upstream = await fetchUpstreamSession(source.authorization, upstreamFor(source.username));
+      if (!hasStalwartRegistry(upstream)) return c.json({ error: "unsupported_server" }, 501);
+      if (!sessions.resolve(row.sourceCookie) || !qrLogins.browser(id, getCookie(c, qrCookie))) return c.json({ error: "qr_expired" }, 410);
+      const credentials = Buffer.from(source.authorization.replace(/^Basic /, ""), "base64").toString("utf8");
+      const split = credentials.indexOf(":");
+      if (!source.authorization.startsWith("Basic ") || split < 1) return c.json({ error: "unsupported_auth" }, 400);
+      const result = sessions.create({ username: source.username, account: source.account, password: credentials.slice(split + 1), remember: row.remember, userAgent: row.userAgent, ip: row.ip });
+      row.issuedCookie = result.cookie;
+      setSessionCookie(c, result.cookie, row.remember);
+      return c.json({ status: "approved" });
+    } catch (err) { return upstreamFailure(c, err); }
+    finally { row.busy = false; }
+  });
 
   // ---------- Auth ----------
   api.post("/auth/login", async (c) => {

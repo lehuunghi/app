@@ -1,7 +1,7 @@
 name: Webmail app checks
 on:
   push:
-    branches: [main, mobile-offline]
+    branches: [main, mobile-offline, mobile-qr-login]
   pull_request:
   workflow_dispatch:
 permissions:

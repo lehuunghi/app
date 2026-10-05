@@ -4,6 +4,26 @@ import type { Catalog } from "@/lib/i18n";
 // Vietnamese uses only the CLDR "other" plural category.
 export const catalog: Catalog = {
   strings: {
+    "Sign in with email": "Đăng nhập bằng email",
+    "Sign in with QR": "Đăng nhập bằng QR",
+    "Open the signed-in phone app and choose Scan QR to sign in to webmail.": "Mở app đã đăng nhập trên điện thoại và chọn Quét QR đăng nhập webmail.",
+    "Verification code": "Mã đối chiếu",
+    "Expires in {seconds} seconds": "Hết hạn sau {seconds} giây",
+    "Confirm this code on your phone. Do not share this QR code.": "Xác nhận mã này trên điện thoại. Không chia sẻ mã QR.",
+    "Create new QR code": "Tạo mã QR mới",
+    "Scan QR to sign in to webmail": "Quét QR đăng nhập webmail",
+    "QR code expired or unavailable. Create a new code.": "Mã QR đã hết hạn hoặc không còn dùng được. Mời tạo mã mới.",
+    "This is not a sign-in QR code for this mail server.": "Đây không phải mã QR đăng nhập của dịch vụ này.",
+    "Could not scan. Check camera access and try again.": "Không quét được mã. Mời kiểm tra quyền camera và thử lại.",
+    "Approved. Webmail will sign in automatically.": "Đã cho phép. Webmail sẽ tự động đăng nhập.",
+    "Sign in to this browser as {account}?": "Đăng nhập trình duyệt này bằng tài khoản {account}?",
+    "Only approve if this code matches the browser in front of you.": "Chỉ cho phép khi mã này khớp với trình duyệt đang ở trước mặt bạn.",
+    "Allow sign-in": "Cho phép đăng nhập",
+    "Scan again": "Quét lại",
+    "Scan the QR code shown on the webmail sign-in screen.": "Quét mã QR trên màn hình đăng nhập webmail.",
+    "Scanning…": "Đang quét…",
+    "Scan QR code": "Quét mã QR",
+
     "This message is already being sent or needs verification.": "Thư đang được gửi hoặc cần xác minh kết quả. Mời kiểm tra Hộp thư đi.",
     "Offline changes and background sync need the updated server. Downloaded mail is still readable.": "Thay đổi ngoại tuyến và đồng bộ nền cần cập nhật máy chủ. Thư đã tải vẫn đọc được.",
     "Offline mail": "Thư ngoại tuyến",

@@ -1,3 +1,4 @@
+import { qrUiSmoke } from "./qr-ui-smoke.mjs";
 import { offlineUiSmoke } from "./offline-ui-smoke.mjs";
 import { spawn } from "node:child_process";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
@@ -108,6 +109,7 @@ try {
     await context.close();
   }
   report.offline = await offlineUiSmoke(browser);
+  report.qrLogin = await qrUiSmoke(browser);
 } catch (error) {
   report.error = error.message;
   try { report.body = (await active?.locator("body").innerText())?.slice(0,2000); writeFileSync("ui-smoke/failure.html", await active.content()); } catch { /* preserve error */ }

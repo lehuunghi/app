@@ -1,7 +1,7 @@
 name: Build mobile test apps
 on:
   push:
-    branches: [main, mobile-offline]
+    branches: [main, mobile-offline, mobile-qr-login]
   workflow_dispatch:
 permissions:
   contents: read

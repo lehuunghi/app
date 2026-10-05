@@ -146,7 +146,7 @@ public class OfflineMailStorePlugin: CAPPlugin, CAPBridgedPlugin {
 }
 
 class OfflineBridgeViewController: CAPBridgeViewController {
-    override func capacitorDidLoad() { bridge?.registerPluginInstance(OfflineMailStorePlugin()) }
+    override func capacitorDidLoad() { bridge?.registerPluginInstance(OfflineMailStorePlugin()); bridge?.registerPluginInstance(QrLoginScannerPlugin()) }
 }
 
 #if DEBUG

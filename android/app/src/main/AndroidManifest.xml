@@ -18,6 +18,7 @@
         </service>
         <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id" android:value="webmail-new-mail" />
 
+        <meta-data android:name="com.google.mlkit.vision.DEPENDENCIES" android:value="barcode_ui" />
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
