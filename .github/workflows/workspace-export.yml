@@ -19,36 +19,36 @@ jobs:
       - run: npm install --ignore-scripts @capacitor/local-notifications@^8 @capacitor/push-notifications@^8
       - name: Package source and locked dependencies
         run: |
-          tar --exclude='./.git' --exclude='./node_modules' --exclude='*/node_modules' -czf ../workspace-source.tgz .
-          find . -name node_modules -type d -prune -print0 | tar --null -T - -czf ../workspace-deps.tgz
-          split -b 16M ../workspace-deps.tgz ../deps-part-
-          ls -lh ../workspace-source.tgz ../deps-part-*
+          tar --exclude='./.git' --exclude='./node_modules' --exclude='*/node_modules' -czf $RUNNER_TEMP/workspace-source.tgz .
+          find . -name node_modules -type d -prune -print0 | tar --null -T - -czf $RUNNER_TEMP/workspace-deps.tgz
+          split -b 16M $RUNNER_TEMP/workspace-deps.tgz $RUNNER_TEMP/deps-part-
+          ls -lh $RUNNER_TEMP/workspace-source.tgz $RUNNER_TEMP/deps-part-*
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-source
-          path: ${{ github.workspace }}/../workspace-source.tgz
+          path: ${{ runner.temp }}/workspace-source.tgz
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-aa
-          path: ${{ github.workspace }}/../deps-part-aa
+          path: ${{ runner.temp }}/deps-part-aa
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ab
-          path: ${{ github.workspace }}/../deps-part-ab
+          path: ${{ runner.temp }}/deps-part-ab
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ac
-          path: ${{ github.workspace }}/../deps-part-ac
+          path: ${{ runner.temp }}/deps-part-ac
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ad
-          path: ${{ github.workspace }}/../deps-part-ad
+          path: ${{ runner.temp }}/deps-part-ad
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ae
-          path: ${{ github.workspace }}/../deps-part-ae
+          path: ${{ runner.temp }}/deps-part-ae
           if-no-files-found: ignore
