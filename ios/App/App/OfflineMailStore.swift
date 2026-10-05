@@ -20,14 +20,15 @@ final class OfflineDatabase {
         var item: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &item)
         if status == errSecSuccess, let data = item as? Data { return SymmetricKey(data: data) }
-        guard status == errSecItemNotFound else { throw OfflineStoreError.key }
+        guard status == errSecItemNotFound else { throw NSError(domain: "OfflineKeychain", code: Int(status)) }
         var bytes = Data(count: 32)
         let generated = bytes.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 32, $0.baseAddress!) }
         guard generated == errSecSuccess else { throw OfflineStoreError.key }
         let insert: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service,
             kSecAttrAccount as String: "encryption", kSecValueData as String: bytes,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly]
-        guard SecItemAdd(insert as CFDictionary, nil) == errSecSuccess else { throw OfflineStoreError.key }
+        let inserted = SecItemAdd(insert as CFDictionary, nil)
+        guard inserted == errSecSuccess else { throw NSError(domain: "OfflineKeychain", code: Int(inserted)) }
         return SymmetricKey(data: bytes)
     }
     private func open() throws -> OpaquePointer {
@@ -114,7 +115,7 @@ final class OfflineDatabase {
         for suffix in ["", "-wal", "-shm", "-journal"] { let path = URL(fileURLWithPath: url.path + suffix); if FileManager.default.fileExists(atPath: path.path) { try FileManager.default.removeItem(at: path) } }
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]
         let status = SecItemDelete(query as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else { throw OfflineStoreError.key }
+        guard status == errSecSuccess || status == errSecItemNotFound else { throw NSError(domain: "OfflineKeychain", code: Int(status)) }
     }
 }
 
@@ -154,22 +155,27 @@ func runOfflineStoreSmoke() {
     OfflineDatabase.queue.async {
         let db = OfflineDatabase.shared
         var result: [String: Any] = ["passed": false]
+        var stage = "empty-profile"
         do {
             guard try db.read("profile", "active") == nil else { throw OfflineStoreError.invalid }
-            try db.clear()
+            stage = "clear"; try db.clear()
             let large = String(repeating: "Thư riêng 🔐\n", count: 400000)
-            try db.commit("test", [["key": "full:mail", "value": large], ["key": "mail:mail", "value": "secret-subject"]])
+            stage = "commit"; try db.commit("test", [["key": "full:mail", "value": large], ["key": "mail:mail", "value": "secret-subject"]])
+            stage = "roundtrip"
             guard try db.read("test", "full:mail") == large, try db.list("test", "mail:")["mail:mail"] == "secret-subject" else { throw OfflineStoreError.invalid }
             let url = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("offline-mail-v1.db")
+            stage = "ciphertext"
             guard try Data(contentsOf: url).range(of: Data("secret-subject".utf8)) == nil else { throw OfflineStoreError.invalid }
+            stage = "rollback"
             do { try db.commit("test", [["key": "mail:mail", "value": "changed"], ["value": "invalid"]]); throw OfflineStoreError.invalid }
             catch OfflineStoreError.invalid { }
             guard try db.read("test", "mail:mail") == "secret-subject" else { throw OfflineStoreError.invalid }
             try db.clear()
             guard try db.read("test", "mail:mail") == nil else { throw OfflineStoreError.invalid }
             try db.clear()
+            stage = "finished"
             result = ["passed": true, "encrypted": true, "largeUnicodeRecord": true, "atomicRollback": true, "logoutErases": true]
-        } catch { result["error"] = "Native encrypted store check failed" }
+        } catch { result["error"] = "Native encrypted store check failed"; result["stage"] = stage; result["domain"] = (error as NSError).domain; result["code"] = (error as NSError).code }
         let report = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("offline-store-smoke.json")
         if let data = try? JSONSerialization.data(withJSONObject: result) { try? data.write(to: report, options: .atomic) }
     }

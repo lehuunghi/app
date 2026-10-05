@@ -21,7 +21,7 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 10000));
   const container = run("simctl", "get_app_container", device.udid, "com.lehuunghi.webmail", "data").trim();
   const store = JSON.parse(readFileSync(container + "/Library/Caches/offline-store-smoke.json", "utf8"));
-  if (!store.passed) throw new Error("Native encrypted store test failed");
+  if (!store.passed) throw new Error("Native encrypted store test failed: " + JSON.stringify(store));
   writeFileSync("ios-smoke/offline-store.json", JSON.stringify(store));
   const running = run("simctl", "spawn", device.udid, "launchctl", "list");
   if (!running.includes("com.lehuunghi.webmail")) throw new Error("App exited after launch");

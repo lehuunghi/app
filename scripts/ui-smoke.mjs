@@ -1,3 +1,4 @@
+import { offlineUiSmoke } from "./offline-ui-smoke.mjs";
 import { spawn } from "node:child_process";
 import { cpSync, mkdirSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -38,7 +39,7 @@ const report = { backend: "Local mock JMAP with demo account; no production mail
 try {
   start(["--import", "tsx", "server/src/mock/index.ts"], { MOCK_USER: "demo", MOCK_PASS: "demo" });
   await ready("http://127.0.0.1:8788/.well-known/jmap");
-  start(["server/dist/index.js"], { HOST: "127.0.0.1", PORT: "8080", STALWART_URL: "http://127.0.0.1:8788", APP_SECRET: randomBytes(32).toString("hex"), ADMINISTRATION: "0", BASE_PATH: "", APP_NAME: "Webmail" });
+  start(["server/dist/index.js"], { HOST: "127.0.0.1", PORT: "8080", STALWART_URL: "http://127.0.0.1:8788", APP_SECRET: randomBytes(32).toString("hex"), ADMINISTRATION: "0", BASE_PATH: "", APP_NAME: "Webmail", SESSION_FILE: process.cwd() + "/ui-smoke/sessions.json" });
   await ready("http://127.0.0.1:8080/api/health");
   browser = await chromium.launch({ channel: "chrome", headless: true });
   for (const viewport of [{ width: 390, height: 844 }, { width: 1280, height: 800 }]) {
@@ -106,6 +107,7 @@ try {
     report.cases.push({ viewport, login: true, publicLoginFooterRemoved: true, accountMenuWithoutAdministration: true, adminFixture, demoMailbox: true, navigation: true, advancedSearch: true, compose: true, noHorizontalOverflow: true });
     await context.close();
   }
+  report.offline = await offlineUiSmoke(browser);
 } catch (error) {
   report.error = error.message;
   try { report.body = (await active?.locator("body").innerText())?.slice(0,2000); writeFileSync("ui-smoke/failure.html", await active.content()); } catch { /* preserve error */ }
