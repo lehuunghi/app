@@ -52,6 +52,12 @@ export function App() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+  useEffect(() => {
+    void import("@/lib/mobile/notifications").then(async (n) => {
+      await n.initializeNativeNotifications();
+      if (status === "authenticated" && useSession.getState().status === "authenticated") await n.startNativeNotifications();
+    }).catch(() => undefined);
+  }, [status]);
 
   /*
    * Wait for the catalog before the first paint.

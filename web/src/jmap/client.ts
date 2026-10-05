@@ -1,6 +1,7 @@
 import type { Id, Invocation, JmapResponse, JmapSession, MethodError, UploadResponse } from "./types";
 import { withBase } from "@/lib/basePath";
 import { isNativeApp } from "@/lib/mobile/config";
+import { t } from "@/lib/i18n";
 
 export const CAP = {
   core: "urn:ietf:params:jmap:core",
@@ -43,7 +44,9 @@ export class ApiError extends Error {
     public readonly code: string,
     message?: string,
   ) {
-    super(message ?? `${code} (${status})`);
+    super((status === 0 && code !== "aborted") || [502, 503, 504].includes(status) || ["network_error", "upstream_unavailable"].includes(code)
+      ? t("Network error. Please check your connection.")
+      : message ?? `${code} (${status})`);
     this.name = "ApiError";
   }
 }
@@ -68,6 +71,14 @@ export type ResultRef = { resultOf: string; name: string; path: string };
 
 const HEADERS = { "content-type": "application/json", accept: "application/json", "x-requested-with": "ihasmail" };
 
+async function connectedFetch(input: string, init: RequestInit): Promise<Response> {
+  try { return await fetch(input, init); }
+  catch (error) {
+    if (init.signal?.aborted) throw error;
+    throw new ApiError(0, "network_error");
+  }
+}
+
 /**
  * Generic fetch against our same-origin API with CSRF header + auth handling.
  *
@@ -76,13 +87,13 @@ const HEADERS = { "content-type": "application/json", accept: "application/json"
  * the `startsWith` below keeps working on the path as written rather than on
  * whatever the deployment happens to be called.
  */
-export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
-  const res = await fetch(withBase(path), {
+export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}, options: { handleUnauthenticated?: boolean } = {}): Promise<T> {
+  const res = await connectedFetch(withBase(path), {
     ...init,
     headers: { ...HEADERS, ...(init.headers as Record<string, string> | undefined) },
     credentials: isNativeApp() ? "include" : "same-origin",
   });
-  if (res.status === 401 && !path.startsWith("/api/auth/login")) {
+  if (res.status === 401 && options.handleUnauthenticated !== false && !path.startsWith("/api/auth/login")) {
     client.handleUnauthenticated();
     throw new ApiError(401, "unauthenticated", "Your session has expired. Please sign in again.");
   }
@@ -337,7 +348,7 @@ export class JmapClient {
 
   /** Fetch a blob's content as text (via the download proxy). */
   async fetchBlobText(accountId: Id, blobId: Id, type = "text/plain"): Promise<string> {
-    const res = await fetch(this.downloadUrl(accountId, blobId, "blob.txt", type), { credentials: isNativeApp() ? "include" : "same-origin" });
+    const res = await connectedFetch(this.downloadUrl(accountId, blobId, "blob.txt", type), { credentials: isNativeApp() ? "include" : "same-origin" });
     if (res.status === 401) {
       this.handleUnauthenticated();
       throw new ApiError(401, "unauthenticated");
@@ -347,7 +358,7 @@ export class JmapClient {
   }
 
   async fetchBlob(accountId: Id, blobId: Id, type = "application/octet-stream"): Promise<Blob> {
-    const res = await fetch(this.downloadUrl(accountId, blobId, "blob", type), { credentials: isNativeApp() ? "include" : "same-origin" });
+    const res = await connectedFetch(this.downloadUrl(accountId, blobId, "blob", type), { credentials: isNativeApp() ? "include" : "same-origin" });
     if (res.status === 401) {
       this.handleUnauthenticated();
       throw new ApiError(401, "unauthenticated");

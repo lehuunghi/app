@@ -18,7 +18,7 @@ Máy chủ cố định dùng HTTPS với chứng chỉ hợp lệ. Không có m
 
 Bản mobile đặt `BASE_PATH` của các tài nguyên đóng gói về rỗng. Dịch vụ thư mặc định là `https://jmail.vn`; API được cố định vào `https://webmail.jmail.vn`, đúng địa chỉ website do máy chủ công bố. Vì vậy, không build app mobile bằng `BASE_PATH` của máy chủ.
 
-Chọn **Thiết bị này là của tôi** nếu muốn giữ phiên đăng nhập lâu hơn và lưu cài đặt, địa chỉ gần đây trên thiết bị. Nếu không chọn, app đăng xuất sau 5 phút không hoạt động và xóa dữ liệu tài khoản cục bộ.
+Đăng nhập mặc định coi đây là thiết bị riêng: giữ phiên đăng nhập lâu hơn và lưu cài đặt, địa chỉ gần đây. Không hiển thị lựa chọn hoặc giải thích này trên login. Lỗi kết nối hiển thị “Đang lỗi kết nối, mời bạn kiểm tra lại.”
 
 Đăng xuất sẽ yêu cầu máy chủ kết thúc phiên và xóa cookie native cùng tệp chia sẻ tạm. App lưu một cờ đã đăng xuất trước khi gọi mạng, nên sẽ không tự khôi phục cookie cũ nếu mất mạng hoặc xóa cookie thất bại. Chỉ đăng nhập thành công mới gỡ cờ này. Phản hồi phiên đến chậm từ tài khoản cũ cũng bị bỏ qua. Cờ chỉ chứa trạng thái đăng xuất, không chứa mật khẩu hoặc nội dung thư. Máy chủ chỉ có thể thu hồi phiên khi nhận được yêu cầu; mất mạng không bảo đảm thu hồi phiên phía máy chủ.
 
@@ -157,12 +157,12 @@ Workflow này chạy khi cập nhật main và có thể chạy thủ công. Ch�
 | Vùng tai thỏ/thanh điều hướng | CSS safe area cho thanh trên, hộp thoại và khung soạn thư |
 | Xem ảnh đính kèm, ảnh CID và ảnh qua privacy proxy | Đã thêm tải qua HTTP native |
 | PDF | Mở/lưu qua bảng chia sẻ native |
-| Thông báo khi app đã đóng | Chưa có FCM/APNs và backend đăng ký thiết bị |
+| Thông báo khi app đã đóng | Đã có FCM/APNs và backend; cần cấu hình và triển khai API mới |
 | Nhận nội dung từ Share sheet của app khác | Chưa tích hợp intent/share extension native |
 | Đọc thư ngoại tuyến | Chưa có kho thư offline |
 | APK/IPA đã ký, phát hành cửa hàng | Chưa thực hiện |
 
-Web Push hiện có dành cho website/PWA; không được coi là push native cho Android/iOS. Muốn thông báo khi app đóng cần backend đăng ký thiết bị, xử lý sự kiện thư và gửi FCM/APNs, rồi xử lý hủy đăng ký khi đăng xuất.
+Website/PWA dùng Web Push; Android/iOS dùng lớp thông báo native riêng. Đã bổ sung backend đăng ký thiết bị, theo dõi thư mới, gửi FCM/APNs và hủy đăng ký khi đăng xuất. Xem [cấu hình thông báo native](THONG-BAO-NATIVE.md).
 
 Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã được cho phép; dữ liệu ảnh của API được chuyển thành URL blob trong WebView để không phụ thuộc cookie của thẻ `<img>`. Tệp chia sẻ nằm trong cache tạm, được xóa khi app khởi động lại hoặc đăng xuất. Tệp lớn vẫn có thể tốn bộ nhớ qua cầu nối JS/native; cần thử giới hạn upload thực tế trước phát hành.
 
@@ -178,7 +178,7 @@ Email HTML vẫn đi qua bộ lọc nội dung. App chỉ tải ảnh đã đư�
 8. Kiểm tra bàn phím, tai thỏ, xoay màn hình và màn hình nhỏ trên cả hai nền tảng.
 9. Trước khi gửi cửa hàng, hoàn tất signing, mô tả quyền riêng tư, thông tin hỗ trợ và kiểm thử tài khoản dùng cho review.
 
-Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.0.4 (build 6).
+Bộ kiểm thử tự động không thay thế bước thử trên Android/iPhone. GitHub Actions biên dịch APK debug và bản iOS simulator; môi trường sửa mã nguồn không có Android SDK hoạt động hoặc Xcode. Bản thử nghiệm hiện tại là 1.1.0 (build 7).
 
 ## 9. Nguồn tham khảo
 
@@ -187,3 +187,9 @@ Bộ kiểm thử tự động không thay thế bước thử trên Android/iPh
 - [Quy trình phát triển Capacitor](https://capacitorjs.com/docs/basics/workflow)
 - [Filesystem và privacy manifest](https://capacitorjs.com/docs/apis/filesystem)
 - [Quy định App Review của Apple](https://developer.apple.com/app-store/review/guidelines/)
+
+## Thông báo native và email cũ
+
+Đã bổ sung tích hợp thông báo Android/iOS, đăng ký thiết bị và worker máy chủ. Xem [hướng dẫn cấu hình và kiểm thử Firebase/APNs](THONG-BAO-NATIVE.md). Cần triển khai API mới và cấu hình nhà cung cấp để nhận khi app đóng.
+
+Email cũ vẫn đọc và tìm kiếm được khi còn trên máy chủ và có mạng; danh sách tải thêm theo từng trang. Chưa hỗ trợ lưu nội dung thư để đọc lại khi mở app mất mạng.

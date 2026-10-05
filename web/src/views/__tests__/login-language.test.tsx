@@ -46,6 +46,8 @@ describe("language selection before sign-in", () => {
     expect(host.textContent).not.toContain("Change Webmail server");
     expect(host.querySelector("#u")).not.toBeNull();
     expect(host.querySelector("#p")).not.toBeNull();
+    expect(host.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(host.querySelector(".login-security-note")).toBeNull();
   });
 
   it("loads a native deployment logo from the fixed API origin", async () => {

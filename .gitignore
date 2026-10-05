@@ -28,3 +28,6 @@ ios/App/build/
 *.p12
 *.xcuserstate
 **/xcuserdata/
+android/app/google-services.json
+*.p8
+*service-account*.json

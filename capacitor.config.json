@@ -4,10 +4,30 @@
   "webDir": "mobile-dist",
   "backgroundColor": "#f6f8fc",
   "loggingBehavior": "none",
-  "server": { "androidScheme": "https" },
-  "android": { "allowMixedContent": false },
-  "ios": { "contentInset": "never" },
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "ios": {
+    "contentInset": "never"
+  },
   "plugins": {
-    "CapacitorHttp": { "enabled": true }
+    "CapacitorHttp": {
+      "enabled": true
+    },
+    "PushNotifications": {
+      "presentationOptions": []
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_notification",
+      "iconColor": "#1a73e8",
+      "presentationOptions": [
+        "sound",
+        "banner",
+        "list"
+      ]
+    }
   }
 }

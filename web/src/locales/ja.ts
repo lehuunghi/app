@@ -929,7 +929,6 @@ export const catalog: Catalog = {
     "Sign out": "サインアウト",
     "Sign out here": "ここでサインアウト",
     "Sign out all other sessions": "他のすべてのセッションをサインアウト",
-    "This is my own device": "これは自分のデバイスです",
     "this device": "このデバイス",
     "Device": "デバイス",
     "IP": "IP",

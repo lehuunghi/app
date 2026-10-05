@@ -926,7 +926,6 @@ export const catalog: Catalog = {
     "Sign out": "Вийти",
     "Sign out here": "Вийти тут",
     "Sign out all other sessions": "Завершити всі інші сеанси",
-    "This is my own device": "Це мій власний пристрій",
     "this device": "цей пристрій",
     "Device": "Пристрій",
     "IP": "IP",

@@ -67,10 +67,13 @@ try {
     if (prefix === "mobile") await page.evaluate(() => { document.documentElement.dataset.nativeApp = "true"; });
     await noOverflow(page);
     for (const selector of ["#u", "#p", "button[type=submit]", "#login-language"]) await fits(page, selector);
+    if (await page.locator('.login-device, .login-security-note').count()) throw new Error("Device trust choice remains on login");
     await page.screenshot({ path: "ui-smoke/" + prefix + "-login.png", fullPage: true });
     await page.locator("#u").fill("demo");
     await page.locator("#p").fill("demo");
     await page.locator("button[type=submit]").click();
+    const ownDevice = await page.evaluate(async () => (await (await fetch('/api/auth/session', { headers: { 'x-requested-with': 'ihasmail' } })).json()).ihasmail?.remember);
+    if (ownDevice !== true) throw new Error("Login did not default to a private device");
     await visible(page, ".workspace-app");
     await visible(page, ".msg-row");
     console.log("UI " + prefix + ": demo inbox loaded");

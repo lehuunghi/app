@@ -928,7 +928,6 @@ export const catalog: Catalog = {
     "Sign out": "退出登录",
     "Sign out here": "在此退出登录",
     "Sign out all other sessions": "退出所有其他会话",
-    "This is my own device": "这是我自己的设备",
     "this device": "当前设备",
     "Device": "设备",
     "IP": "IP",

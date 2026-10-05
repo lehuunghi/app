@@ -1,9 +1,10 @@
 import { serve } from "@hono/node-server";
 import { config } from "./config.js";
-import { createApp, sessions } from "./app.js";
+import { createApp, sessions, nativePush } from "./app.js";
 
 async function main() {
   await sessions.init();
+  await nativePush.init();
   const app = createApp();
   const server = serve({ fetch: app.fetch, hostname: config.host, port: config.port }, (info) => {
     console.log(`[ihasmail] ${config.appName} listening on http://${info.address}:${info.port}`);
@@ -14,6 +15,7 @@ async function main() {
   const shutdown = async (signal: string) => {
     console.log(`[ihasmail] ${signal} received, shutting down`);
     server.close();
+    await nativePush.close();
     await sessions.close();
     process.exit(0);
   };

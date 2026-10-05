@@ -33,6 +33,7 @@ import { compareFolders } from "@/lib/mailbox/folderOrder";
 import { type ListQuery, type MailState } from "./types";
 import { playNewMailSound, showNotification } from "@/lib/notify/notify";
 import { pushEnabledHere } from "@/lib/notify/webpush";
+import { isNativeApp } from "@/lib/mobile/config";
 
 /*
  * `@/store/mail` stays the one public entry. The split below is about file
@@ -1496,6 +1497,11 @@ async function notifyNewMail(created: Id[], get: () => MailState) {
   const emails = await get().getEmails(created);
   const fresh = emails.filter((e) => e.mailboxIds[inbox] && !e.keywords.$seen && !e.keywords.$draft);
   if (!fresh.length) return;
+  if (isNativeApp()) {
+    const { showNativeNotification } = await import("@/lib/mobile/notifications");
+    await showNativeNotification().catch(() => undefined);
+    return;
+  }
   if (s.notificationSound) playNewMailSound();
   // Where background notifications are on in this browser, the service worker
   // shows these already; showing them here too was the duplicate in #375.

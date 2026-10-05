@@ -11,6 +11,7 @@ export function isNativeApp(): boolean {
 export const MOBILE_SERVER_URL = "https://jmail.vn";
 // jmail.vn redirects its website here; the Node API is served on this origin.
 export const MOBILE_API_URL = "https://webmail.jmail.vn";
+export const ANDROID_PUSH_CONFIGURED = import.meta.env.VITE_ANDROID_PUSH_CONFIGURED === "true";
 
 export function mobileApiServerUrl(): string {
   return MOBILE_API_URL;

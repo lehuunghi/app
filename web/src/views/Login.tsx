@@ -8,7 +8,6 @@ import { t } from "@/lib/i18n";
 import { UI_LANGUAGES } from "@/lib/languages";
 import { useSettings } from "@/store/settings";
 import { BrandLogo } from "@/ui/BrandLogo";
-import { isNativeApp } from "@/lib/mobile/config";
 
 export function LoginPage() {
   const uiLanguage = useSettings((s) => s.settings.uiLanguage);
@@ -31,7 +30,6 @@ export function LoginPage() {
   const [username, setUsername] = useState(() => localStorage.getItem("ihasmail:lastUser") ?? "");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [trustDevice, setTrustDevice] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +41,8 @@ export function LoginPage() {
     try {
       // No two-factor code: the field is not on this form until the flow works
       // end to end, and the server treats an absent code as none given.
-      await login(username.trim(), password, "", trustDevice);
-      if (trustDevice) localStorage.setItem("ihasmail:lastUser", username.trim());
+      await login(username.trim(), password, "", true);
+      localStorage.setItem("ihasmail:lastUser", username.trim());
     } catch (err) {
       if (err instanceof ApiError) {
         if (err.code === "invalid_credentials") {
@@ -81,19 +79,6 @@ export function LoginPage() {
                 </button>
               </div>
             </div>
-            <label className="check login-device">
-              <input type="checkbox" checked={trustDevice} onChange={(e) => setTrustDevice(e.target.checked)} />
-              <span>{t("This is my own device")}</span>
-            </label>
-            <p className="hint login-security-note">
-              {isNativeApp()
-                ? trustDevice
-                  ? t("Stay signed in, and keep settings and recent addresses on this device.")
-                  : t("Sign out after 5 minutes of inactivity and clear local account data. Leave this unticked on a shared device.")
-                : trustDevice
-                  ? t("Stay signed in, and keep settings and recent addresses on this computer.")
-                  : t("Signed out after 5 minutes of inactivity, and nothing is kept on this computer. Leave this unticked on a shared or public one.")}
-            </p>
             <div className="login-actions">
               <button className="btn btn-primary" type="submit" disabled={busy}>
                 {busy && <span className="spinner" />}{busy ? t("Signing in…") : t("Sign in")}

@@ -5,7 +5,16 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Mobile always serves its bundled assets at its local origin. The API's
 // origin is https://webmail.jmail.vn, advertised by https://jmail.vn.
-const env = { ...process.env, BASE_PATH: "", VITE_MOBILE_BUILD: "true" };
+let androidPushConfigured = false;
+const googleServices = new URL("../android/app/google-services.json", import.meta.url);
+if (existsSync(googleServices)) {
+  const services = JSON.parse(readFileSync(googleServices, "utf8"));
+  if (!services.project_info?.project_id || !services.client?.some((c) => c.client_info?.android_client_info?.package_name === "com.lehuunghi.webmail")) {
+    throw new Error("google-services.json must belong to com.lehuunghi.webmail");
+  }
+  androidPushConfigured = true;
+}
+const env = { ...process.env, BASE_PATH: "", VITE_MOBILE_BUILD: "true", VITE_ANDROID_PUSH_CONFIGURED: String(androidPushConfigured) };
 const run = (args) => {
   const r = spawnSync(process.execPath, args, { cwd: root, env, stdio: "inherit" });
   if (r.error) throw r.error;

@@ -26,6 +26,13 @@ jobs:
           accept-android-sdk-licenses: false
       - run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - run: npm ci --ignore-scripts
+      - name: Configure Android push when Firebase is available
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          fi
       - run: npm run mobile:build
       - run: npx cap sync android
       - run: ./gradlew assembleDebug

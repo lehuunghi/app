@@ -935,7 +935,6 @@ export const catalog: Catalog = {
     "Sign out": "Se déconnecter",
     "Sign out here": "Se déconnecter ici",
     "Sign out all other sessions": "Déconnecter toutes les autres sessions",
-    "This is my own device": "Cet appareil est le mien",
     "this device": "cet appareil",
     "Device": "Appareil",
     "IP": "IP",

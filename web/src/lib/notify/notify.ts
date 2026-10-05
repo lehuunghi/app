@@ -1,4 +1,5 @@
 import { withBase } from "../basePath";
+import { isNativeApp } from "../mobile/config";
 
 let baseTitle = "Webmail";
 let faviconCanvas: HTMLCanvasElement | null = null;
@@ -73,6 +74,7 @@ export function setUnreadBadge(count: number): void {
 }
 
 export async function requestNotificationPermission(): Promise<NotificationPermission> {
+  if (isNativeApp()) return (await import("../mobile/notifications")).nativeNotificationPermission(true);
   if (!("Notification" in window)) return "denied";
   if (Notification.permission !== "default") return Notification.permission;
   try {
@@ -92,6 +94,10 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  * replaces the first instead of stacking beside it.
  */
 export function showNotification(title: string, opts: NotificationOptions & { onClick?: () => void } = {}): void {
+  if (isNativeApp()) {
+    void import("../mobile/notifications").then((n) => n.showNativeNotification()).catch(() => undefined);
+    return;
+  }
   if (!("Notification" in window) || Notification.permission !== "granted") return;
   if (document.visibilityState === "visible" && document.hasFocus()) return;
   const { onClick, ...options } = opts;

@@ -11,11 +11,11 @@ for (const path of ["mobile-dist/index.html", "android/app/src/main/java/com/leh
 }
 if (existsSync(root + "mobile-dist/sw.js")) throw new Error("A service worker must not update the packaged UI.");
 const spm = read("ios/App/CapApp-SPM/Package.swift");
-for (const plugin of ["CapacitorApp", "CapacitorFilesystem", "CapacitorShare"]) {
+for (const plugin of ["CapacitorApp", "CapacitorFilesystem", "CapacitorShare", "CapacitorLocalNotifications", "CapacitorPushNotifications"]) {
   if (!spm.includes(plugin)) throw new Error(`Run cap sync: iOS plugin missing: ${plugin}`);
 }
 const android = JSON.parse(read("android/app/src/main/assets/capacitor.plugins.json"));
-if (android.length < 3) throw new Error("Run cap sync: Android plugins missing.");
+if (android.length < 5) throw new Error("Run cap sync: Android plugins missing.");
 if (!read("android/app/src/main/AndroidManifest.xml").includes('android:allowBackup="false"')) throw new Error("Mail storage should not enter Android backups.");
 console.log("Mobile assets, HTTPS configuration, native plugin registration and platform projects verified.");
 console.log("APK/IPA compilation and real-device testing still require the Android/iOS toolchains.");

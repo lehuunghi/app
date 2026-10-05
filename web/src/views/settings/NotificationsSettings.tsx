@@ -9,8 +9,13 @@ import { supportsEmailPush, webPushAvailable } from "@/lib/notify/webpush";
 import { toast } from "@/ui/toast";
 import { t } from "@/lib/i18n";
 import { isEnforced } from "@/lib/settingsPolicy";
+import { isNativeApp } from "@/lib/mobile/config";
+import { NativeNotificationsSettings } from "./NativeNotificationsSettings";
 
 export function NotificationsSettings() {
+  return isNativeApp() ? <NativeNotificationsSettings /> : <BrowserNotificationsSettings />;
+}
+function BrowserNotificationsSettings() {
   const appName = useAppName();
   const s = useSettings((st) => st.settings);
   const update = useSettings((st) => st.update);

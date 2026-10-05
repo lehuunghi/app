@@ -79,6 +79,7 @@ export const useSession = create<SessionState>((set, get) => ({
   async logout() {
     sessionGeneration++;
     blockNativeSession();
+    const nativeNotifications = import("@/lib/mobile/notifications").then((n) => n.stopNativeNotifications()).catch(() => undefined);
     push.stop();
     setServerLocale(null);
     // Anything still sitting in the debounce is written while the session can
@@ -111,6 +112,7 @@ export const useSession = create<SessionState>((set, get) => ({
       /* ignore */
     }
     stopIdleLogout();
+    await nativeNotifications;
     try { await clearNativeSession(); } catch { /* logout UI must still complete */ }
     // Unconditional. The push subscription above is removed for exactly this
     // reason -- that a browser left holding someone's mail is somebody else's
@@ -174,6 +176,7 @@ function applySession(s: JmapSession, set: (p: Partial<SessionState>) => void) {
 }
 
 client.onUnauthenticated(() => {
+  void import("@/lib/mobile/notifications").then((n) => n.stopNativeNotifications()).catch(() => undefined);
   push.stop();
   stopSettingsSync();
   stopIdleLogout();

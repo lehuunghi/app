@@ -3,6 +3,7 @@ import { Capacitor } from "@capacitor/core";
 const network = vi.hoisted(() => ({ api: vi.fn() }));
 vi.mock("@/jmap/client", async (original) => ({ ...await original<object>(), apiFetch: network.api }));
 vi.mock("../runtime", () => ({ clearNativeSession: async () => { throw new Error("cookie bridge unavailable"); } }));
+vi.mock("../notifications", () => ({ stopNativeNotifications: async () => {} }));
 vi.mock("@/lib/notify/webpush", () => ({ unsubscribeThisDevice: async () => {} }));
 vi.mock("@/lib/settingsSync", () => ({ flushSettingsPush: async () => {}, stopSettingsSync: () => {} }));
 import { useSession } from "@/store/session";

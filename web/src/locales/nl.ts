@@ -930,7 +930,6 @@ export const catalog: Catalog = {
     "Sign out": "Uitloggen",
     "Sign out here": "Hier uitloggen",
     "Sign out all other sessions": "Alle andere sessies uitloggen",
-    "This is my own device": "Dit is mijn eigen apparaat",
     "this device": "dit apparaat",
     "Device": "Apparaat",
     "IP": "IP",

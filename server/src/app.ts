@@ -43,10 +43,15 @@ import {
 import { imageProxyHandler } from "./imageproxy.js";
 import { icsProxyHandler } from "./icsproxy.js";
 import { staticHandler } from "./static.js";
+import { NativePush, NativePushError } from "./nativePush.js";
+import { PushProviders } from "./nativePushProviders.js";
+import { watchNativeMail } from "./nativeMailWatch.js";
 
 type Env = { Variables: { session: LiveSession } };
 
 export const sessions: SessionBackend = new SessionStore(config.sessionFile);
+export const nativePush = new NativePush(sessions, new PushProviders(), watchNativeMail,
+  process.env.NATIVE_PUSH_FILE ?? (config.sessionFile ? `${config.sessionFile}.native-push` : ""), config.appSecret);
 const loginLimiter = new RateLimiter(config.loginRateLimit, 15 * 60_000);
 /*
  * The backstop that is never refunded.
@@ -234,6 +239,7 @@ const requireSession: MiddlewareHandler<Env> = async (c, next) => {
     return c.json({ error: "unauthenticated" }, 401);
   }
   c.set("session", session);
+  await nativePush.refreshCredentials(session);
   await next();
 };
 
@@ -280,7 +286,7 @@ function upstreamFailure(c: Context, err: unknown) {
  * tests can mount the same app twice, at the root and under a prefix, without
  * re-importing the module to change one environment variable.
  */
-export function createApp(basePath = config.basePath): Hono<Env> {
+export function createApp(basePath = config.basePath, nativeNotifications = nativePush): Hono<Env> {
   const app = new Hono<Env>();
   app.use("*", securityHeaders);
   app.use("*", compressResponses(basePath));
@@ -461,6 +467,7 @@ export function createApp(basePath = config.basePath): Hono<Env> {
     const session = sessions.resolve(cookie);
     if (session) {
       sessions.destroy(session.id);
+      await nativeNotifications.remove(session.id);
       forgetUpstreamSession(session.id);
     }
     deleteCookie(c, config.cookieName, { path: cookiePath });
@@ -470,6 +477,26 @@ export function createApp(basePath = config.basePath): Hono<Env> {
   api.get("/auth/sessions", requireSession, (c) => {
     const session = c.get("session");
     return c.json({ current: session.id, sessions: sessions.listForUser(session.account) });
+  });
+
+  api.get("/notifications/native", requireSession, apiRateLimited, (c) => {
+    const platform = c.req.query("platform");
+    if (platform !== "android" && platform !== "ios") return c.json({ error: "invalid_device" }, 400);
+    return c.json(nativeNotifications.status(c.get("session"), c.req.query("installation") ?? "", platform));
+  });
+  api.post("/notifications/native", requireSession, apiRateLimited, async (c) => {
+    let body: unknown; try { body = await c.req.json(); } catch { return c.json({ error: "invalid_device" }, 400); }
+    try { return c.json(await nativeNotifications.register(c.get("session"), body)); }
+    catch (err) {
+      if (err instanceof NativePushError) return c.json({ error: err.code }, err.status);
+      return c.json({ error: "upstream_unavailable" }, 503);
+    }
+  });
+  api.delete("/notifications/native", requireSession, apiRateLimited, async (c) => {
+    const installation = c.req.query("installation");
+    if (!installation || !/^[a-f\d-]{36}$/i.test(installation)) return c.json({ error: "invalid_device" }, 400);
+    await nativeNotifications.remove(c.get("session").id, installation);
+    return c.json({ ok: true });
   });
 
   api.post("/auth/sessions/revoke-others", requireSession, (c) => {

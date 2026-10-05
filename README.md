@@ -8,11 +8,13 @@
 - Kết nối HTTP native, cookie phiên đăng nhập do nền tảng quản lý; không lưu mật khẩu trong cấu hình hoặc mã nguồn.
 - Kiểm tra thay đổi JMAP mỗi 30 giây khi app ở phía trước, tạm dừng khi app ở nền và kiểm tra lại khi quay về.
 - Chọn tệp đính kèm bằng bộ chọn tệp của thiết bị; tải/lưu/chia sẻ bằng bảng chia sẻ native.
+- Mặc định giữ đăng nhập trên thiết bị riêng; login không có lựa chọn thiết bị riêng. Lỗi kết nối dùng thông báo ngắn tiếng Việt.
+- Thông báo native, nút thử và hướng dẫn [cấu hình Firebase/APNs](docs/THONG-BAO-NATIVE.md).
 - Có sẵn dự án Android và iOS, biểu tượng Webmail riêng và quy trình build bản thử nghiệm.
 - Đăng xuất chặn tự khôi phục phiên cũ kể cả khi mất mạng; chỉ đăng nhập thành công mới mở lại phiên.
 - Có nút thử lại khi khởi động lỗi và khoảng trống cho vùng tai thỏ, thanh trạng thái và thanh điều hướng.
 
-**Trạng thái:** phiên bản native 1.0.4 (build 6). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Push khi app đóng, nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
+**Trạng thái:** phiên bản native 1.1.0 (build 7). Android APK debug và ứng dụng iOS simulator được build bằng GitHub Actions. Cần kiểm thử trên điện thoại thật và ký bản phát hành trước khi đưa lên cửa hàng. Thông báo native đã có mã tích hợp Android/iOS và máy chủ; nhận khi app đóng cần triển khai API mới, Firebase/APNs và bản iOS ký hợp lệ. Nhận nội dung từ bảng chia sẻ của app khác và đọc thư ngoại tuyến chưa được triển khai.
 
 Giao diện đồng bộ từ `lehuunghi/webmail` tại commit `bfd7320612cba7eba905365db6c79a40514f0369`: đăng nhập gọn, logo theo triển khai, thanh điều hướng workspace, tìm kiếm nâng cao và thư mục kiểu Gmail. Các lớp HTTP native, cookie, đăng xuất, tệp chia sẻ và safe area được giữ trong nhánh app.
 
