@@ -13,12 +13,13 @@ const email = (id = "e1"): Email => ({ id, blobId: `raw-${id}`, threadId: `t-${i
   bodyValues: { text: { value: "Persist me", isEncodingProblem: false, isTruncated: false } }, textBody: [{ partId: "text", type: "text/plain", size: 10, blobId: "body", charset: "utf-8", name: null, disposition: null, cid: null }], htmlBody: [], attachments: [{ partId: "att", name: "a.txt", type: "text/plain", size: 5, blobId: "attachment", charset: "utf-8", disposition: "attachment", cid: null }] } as Email);
 function fakeServer() {
   const emails = new Map<string, Email>([["e1", email()]]);
+  const mailboxes = structuredClone(boxes);
   let state = "S1", next = 1, failChanges = false;
   const request = vi.fn(async (body: OfflineOperation["request"]): Promise<JmapResponse> => {
     const responses: Invocation[] = [];
     for (const [name, args, id] of body.methodCalls) {
       let result: Record<string, unknown>;
-      if (name === "Mailbox/get") result = { accountId: "a", state: "M1", list: boxes, notFound: [] };
+      if (name === "Mailbox/get") result = { accountId: "a", state: "M1", list: structuredClone(mailboxes), notFound: [] };
       else if (name === "Email/query") result = { accountId: "a", queryState: state, ids: [...emails.keys()].slice(Number(args.position ?? 0), Number(args.position ?? 0) + Number(args.limit ?? 100)), position: args.position ?? 0 };
       else if (name === "Email/get") {
         const ids = args.ids as string[];
@@ -52,6 +53,10 @@ function fakeServer() {
             else if (path.startsWith("keywords/")) { const key = path.slice(9); if (value) e.keywords[key] = true; else delete e.keywords[key]; }
           }
         }
+      } else if (name === "Mailbox/set") {
+        for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, object>)) {
+          const id = `box-${next++}`; created[key] = { id }; mailboxes.push({ ...boxes[0], ...value, id, role: null } as Mailbox);
+        }
       } else if (name === "EmailSubmission/set") {
         for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, { emailId: string }>)) {
           const id = value.emailId.startsWith("#") ? creations[value.emailId.slice(1)]! : value.emailId;
@@ -73,6 +78,34 @@ const body = (methodCalls: Invocation[]) => ({ using: Object.keys(session.capabi
 
 beforeEach(() => { vi.stubGlobal("crypto", webcrypto); });
 describe("durable offline mail", () => {
+  it("keeps pending folder changes across server refresh and restores folders when cancelled", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Mailbox/set", { accountId: "a", update: { inbox: { name: "Renamed" } } }, "rename"]]));
+    const rename = engine.manifest!.operations[0]!.id;
+    await engine.request(body([["Mailbox/set", { accountId: "a", destroy: ["trash"] }, "delete"]]));
+    const deletion = engine.manifest!.operations[1]!.id;
+    const made = await engine.request(body([["Mailbox/set", { accountId: "a", create: { box: { name: "Local folder", parentId: null } } }, "create"]]));
+    const localId = (made.methodResponses[0]![1].created as Record<string, { id: string }>).box!.id;
+    const creation = engine.manifest!.operations[2]!.id;
+    await engine.request(body([["Mailbox/get", { accountId: "a", ids: null }, "get"]]));
+    expect(engine.manifest!.mailboxes.find((b) => b.id === "inbox")?.name).toBe("Renamed");
+    expect(engine.manifest!.mailboxes.some((b) => b.id === "trash")).toBe(false);
+    const restored = new OfflineEngine(disk, server.transport); await restored.restore();
+    await restored.cancel(creation); await restored.cancel(deletion); await restored.cancel(rename);
+    expect(restored.manifest!.mailboxes.some((b) => b.id === localId)).toBe(false);
+    expect(restored.manifest!.mailboxes.find((b) => b.id === "inbox")?.name).toBe("Inbox");
+    expect(restored.manifest!.mailboxes.some((b) => b.id === "trash")).toBe(true);
+  });
+  it("replaces an acknowledged local folder with its server id without duplicate folders", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Mailbox/set", { accountId: "a", create: { box: { name: "New folder", parentId: null } } }, "create"]]));
+    await engine.sync();
+    expect(engine.manifest!.operations).toHaveLength(0);
+    expect(engine.manifest!.mailboxes.filter((b) => b.name === "New folder")).toHaveLength(1);
+    expect(engine.manifest!.mailboxes.find((b) => b.name === "New folder")?.id).not.toMatch(/^offline:/);
+  });
   it("downloads bodies and attachments once, then reads them after app restart without network", async () => {
     const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
     await engine.activate(session); await engine.sync();

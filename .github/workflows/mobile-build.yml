@@ -112,7 +112,7 @@ jobs:
             adb install -r dist/app-debug-androidTest.apk
             adb shell am instrument -w com.lehuunghi.webmail.test/androidx.test.runner.AndroidJUnitRunner > native-store-test.txt
             cat native-store-test.txt
-            grep -q "OK (1 test)" native-store-test.txt
+            grep -q "OK (2 tests)" native-store-test.txt
             node scripts/android-smoke.mjs
       - uses: actions/upload-artifact@v4
         if: always()

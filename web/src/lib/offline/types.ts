@@ -13,6 +13,7 @@ export interface OfflineOperation {
   creations: Record<string, Record<string, Id>>;
   base: Record<Id, { mailboxIds: Record<Id, boolean>; keywords: Record<string, boolean> }>;
   before?: Record<Id, StoredEmail | null>;
+  beforeMailboxes?: Record<Id, Mailbox | null>;
   send: boolean;
   sendAccepted?: boolean;
 }

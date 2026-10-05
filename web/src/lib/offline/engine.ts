@@ -240,9 +240,18 @@ export class OfflineEngine {
         totalThreads: new Set(emails.map((e) => e.email.threadId)).size, unreadThreads: new Set(emails.filter((e) => !e.email.keywords.$seen).map((e) => e.email.threadId)).size };
     });
   }
+  private overlayMailboxes(boxes: OfflineManifest["mailboxes"]) {
+    const m = this.manifest!;
+    let next = [...boxes, ...m.mailboxes.filter((box) => box.id.startsWith(LOCAL_ID) && !m.mappings[box.id] && !boxes.some((b) => b.id === box.id))];
+    for (const op of m.operations) for (const [name, args] of (replaceIds(op.request, m.mappings) as OfflineOperation["request"]).methodCalls) if (name === "Mailbox/set") {
+      const updates = args.update as Record<Id, Record<string, unknown>> | undefined;
+      next = next.filter((box) => !((args.destroy ?? []) as Id[]).includes(box.id)).map((box) => { const patch = updates?.[box.id]; return patch ? applyPatch(box as unknown as Email, patch) as unknown as typeof box : box; });
+    }
+    return next;
+  }
   private async queue(body: OfflineOperation["request"], readyAt = Date.now()): Promise<JmapResponse> {
     const m = clone(this.manifest!);
-    const op: OfflineOperation = { id: uuid(), accountId: m.accountId, createdAt: Date.now(), readyAt, status: "pending", request: clone(body), creations: {}, base: {}, before: {}, send: body.methodCalls.some(([name]) => name === "EmailSubmission/set") };
+    const op: OfflineOperation = { id: uuid(), accountId: m.accountId, createdAt: Date.now(), readyAt, status: "pending", request: clone(body), creations: {}, base: {}, before: {}, beforeMailboxes: {}, send: body.methodCalls.some(([name]) => name === "EmailSubmission/set") };
     const changes: StoreChange[] = [];
     const response: Invocation[] = [];
     const createdIds = { ...body.createdIds };
@@ -267,7 +276,7 @@ export class OfflineEngine {
           const stored = { email: meta(email), full: true, complete: true };
           local.set(id, stored);
           changes.push({ key: `mail:${id}`, value: json(stored) }, { key: `full:${id}`, value: json(email) });
-        } else if (name === "Mailbox/set") m.mailboxes.push({ ...object, id, totalEmails: 0, unreadEmails: 0, totalThreads: 0, unreadThreads: 0, isSubscribed: true, myRights: { mayReadItems: true, mayAddItems: true, mayRemoveItems: true, maySetSeen: true, maySetKeywords: true, mayCreateChild: true, mayRename: true, mayDelete: true, maySubmit: true } } as unknown as OfflineManifest["mailboxes"][number]);
+        } else if (name === "Mailbox/set") { op.beforeMailboxes![id] = null; m.mailboxes.push({ ...object, id, totalEmails: 0, unreadEmails: 0, totalThreads: 0, unreadThreads: 0, isSubscribed: true, myRights: { mayReadItems: true, mayAddItems: true, mayRemoveItems: true, maySetSeen: true, maySetKeywords: true, mayCreateChild: true, mayRename: true, mayDelete: true, maySubmit: true } } as unknown as OfflineManifest["mailboxes"][number]); }
       }
       for (const [id, patch] of Object.entries((args.update ?? {}) as Record<Id, Record<string, unknown>>)) {
         if (name === "Email/set") {
@@ -278,7 +287,10 @@ export class OfflineEngine {
           if (Object.keys(patch).some((key) => !key.startsWith("keywords/") && !key.startsWith("mailboxIds/") && !["keywords", "mailboxIds", "receivedAt"].includes(key))) throw new Error("offline_email_content_immutable");
           const stored = { ...existing, email: applyPatch(existing.email, patch) };
           local.set(id, stored); changes.push({ key: `mail:${id}`, value: json(stored) });
-        } else if (name === "Mailbox/set") m.mailboxes = m.mailboxes.map((box) => box.id === id ? applyPatch(box as unknown as Email, patch) as unknown as typeof box : box);
+        } else if (name === "Mailbox/set") {
+          if (!(id in op.beforeMailboxes!)) op.beforeMailboxes![id] = clone(m.mailboxes.find((box) => box.id === id) ?? null);
+          m.mailboxes = m.mailboxes.map((box) => box.id === id ? applyPatch(box as unknown as Email, patch) as unknown as typeof box : box);
+        }
         else throw new Error("offline_method_unavailable");
         updated[id] = null;
       }
@@ -288,7 +300,10 @@ export class OfflineEngine {
           op.before![id] ??= existing ? clone(existing) : null;
           if (existing) op.base[id] = { mailboxIds: clone(existing.email.mailboxIds), keywords: clone(existing.email.keywords) };
           local.delete(id); changes.push({ key: `mail:${id}`, value: null });
-        } else if (name === "Mailbox/set") m.mailboxes = m.mailboxes.filter((box) => box.id !== id);
+        } else if (name === "Mailbox/set") {
+          if (!(id in op.beforeMailboxes!)) op.beforeMailboxes![id] = clone(m.mailboxes.find((box) => box.id === id) ?? null);
+          m.mailboxes = m.mailboxes.filter((box) => box.id !== id);
+        }
         else throw new Error("offline_method_unavailable");
         destroyed.push(id);
       }
@@ -345,7 +360,7 @@ export class OfflineEngine {
         changes.push({ key: `mail:${email.id}`, value: json(stored) });
         if (full) changes.push({ key: `full:${email.id}`, value: json(email) });
       }
-      else if (name === "Mailbox/get") { m.mailboxes = [...args.list as typeof m.mailboxes, ...m.mailboxes.filter((box) => box.id.startsWith(LOCAL_ID))]; m.mailboxState = String(args.state); }
+      else if (name === "Mailbox/get") { m.mailboxes = this.overlayMailboxes(args.list as typeof m.mailboxes); m.mailboxState = String(args.state); }
       else if (name === "Identity/get") m.identities = args.list as typeof m.identities;
     }
     await this.save(m, changes);
@@ -447,7 +462,7 @@ export class OfflineEngine {
       return inv[1] as T;
     };
     const boxes = await call<GetResponse<OfflineManifest["mailboxes"][number]>>("Mailbox/get", { ids: null });
-    await this.save({ ...this.manifest!, mailboxes: [...boxes.list, ...this.manifest!.mailboxes.filter((b) => b.id.startsWith(LOCAL_ID))], mailboxState: boxes.state });
+    await this.save({ ...this.manifest!, mailboxes: this.overlayMailboxes(boxes.list), mailboxState: boxes.state });
     if (!m.emailState) await this.resnapshot(call);
     else {
       try {
@@ -574,13 +589,14 @@ export class OfflineEngine {
     await this.exclusive(async () => {
       const op = this.manifest?.operations.find((o) => o.id === id);
       if (!op || op.status === "uncertain" || op.sendAccepted) throw new Error("offline_cannot_cancel_uncertain");
-      const dependentIds = [...Object.keys(op.before ?? {}), ...Object.values(op.creations).flatMap(Object.values)];
+      const dependentIds = [...Object.keys(op.before ?? {}), ...Object.keys(op.beforeMailboxes ?? {}), ...Object.values(op.creations).flatMap(Object.values)];
       const later = this.manifest!.operations.slice(this.manifest!.operations.indexOf(op) + 1);
       if (later.some((o) => dependentIds.some((id) => json(o.request).includes(id)))) throw new Error("offline_cancel_later_changes_first");
       const m = clone(this.manifest!);
       m.operations = m.operations.filter((o) => o.id !== id);
       const changes: StoreChange[] = Object.values(op.creations).flatMap((created) => Object.values(created).flatMap((id) => [{ key: `mail:${id}`, value: null }, { key: `full:${id}`, value: null }]));
       for (const [id, before] of Object.entries(op.before ?? {})) changes.push({ key: `mail:${id}`, value: before ? json(before) : null });
+      for (const [id, before] of Object.entries(op.beforeMailboxes ?? {})) { m.mailboxes = m.mailboxes.filter((box) => box.id !== id); if (before) m.mailboxes.push(before); }
       m.emailState = null;
       await this.save(m, changes);
     });

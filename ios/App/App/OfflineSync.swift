@@ -152,13 +152,13 @@ final class OfflineSync {
         }
     }
     private func pendingCalls() -> [[Any]] { let mappings = manifest["mappings"] as? [String: String] ?? [:]; return (manifest["operations"] as? [OfflineJSON] ?? []).flatMap { (replace($0["request"]!, mappings) as? OfflineJSON)?["methodCalls"] as? [[Any]] ?? [] } }
-    private func deleted(_ id: String) -> Bool { pendingCalls().contains { $0[0] as? String == "Email/set" && (($0[1] as? OfflineJSON)?["destroy"] as? [String] ?? []).contains(id) } }
+    private func deleted(_ id: String, _ method: String = "Email/set") -> Bool { pendingCalls().contains { $0[0] as? String == method && (($0[1] as? OfflineJSON)?["destroy"] as? [String] ?? []).contains(id) } }
     private func patch(_ object: OfflineJSON, _ path: [String], _ value: Any) -> OfflineJSON {
         var result = object; guard let key = path.first else { return result }
         if path.count == 1 { if value is NSNull { result.removeValue(forKey: key) } else { result[key] = value } }
         else { result[key] = patch(object[key] as? OfflineJSON ?? [:], Array(path.dropFirst()), value) }; return result
     }
-    private func overlay(_ email: OfflineJSON) -> OfflineJSON { var result = email; for call in pendingCalls() where call[0] as? String == "Email/set" { if let updates = (call[1] as? OfflineJSON)?["update"] as? [String: OfflineJSON], let values = updates[email["id"] as! String] { for (path, value) in values { result = patch(result, path.components(separatedBy: "/").map { $0.replacingOccurrences(of: "~1", with: "/").replacingOccurrences(of: "~0", with: "~") }, value) } } }; return result }
+    private func overlay(_ email: OfflineJSON, _ method: String = "Email/set") -> OfflineJSON { var result = email; for call in pendingCalls() where call[0] as? String == method { if let updates = (call[1] as? OfflineJSON)?["update"] as? [String: OfflineJSON], let values = updates[email["id"] as! String] { for (path, value) in values { result = patch(result, path.components(separatedBy: "/").map { $0.replacingOccurrences(of: "~1", with: "/").replacingOccurrences(of: "~0", with: "~") }, value) } } }; return result }
     private func pull() throws {
         var more = true
         while more {
@@ -169,8 +169,9 @@ final class OfflineSync {
             var changes: [OfflineJSON] = []
             for id in result["removed"] as? [String] ?? [] { changes += [["key": "mail:" + id, "value": NSNull()], ["key": "full:" + id, "value": NSNull()]] }
             for email in result["list"] as? [OfflineJSON] ?? [] { let id = email["id"] as! String; if deleted(id) { continue }; let old = try read(scope, "mail:" + id); let row: OfflineJSON = ["email": overlay(email), "full": old?["full"] as? Bool ?? false, "complete": old?["complete"] as? Bool ?? false, "pinned": old?["pinned"] as? Bool ?? false]; changes.append(["key": "mail:" + id, "value": try Self.encode(row)]) }
-            let local = (manifest["mailboxes"] as? [OfflineJSON] ?? []).filter { ($0["id"] as? String ?? "").hasPrefix("offline:") }
-            manifest["mailboxes"] = (result["mailboxes"] as? [OfflineJSON] ?? []) + local; manifest["mailboxState"] = result["mailboxState"]; manifest["identities"] = result["identities"]; manifest["emailState"] = result["state"]; manifest["backgroundPull"] = result["snapshot"]; try save(changes); more = result["more"] as? Bool ?? false
+            let mappings = manifest["mappings"] as? [String: String] ?? [:]
+            let local = (manifest["mailboxes"] as? [OfflineJSON] ?? []).filter { let id = $0["id"] as? String ?? ""; return id.hasPrefix("offline:") && mappings[id] == nil }
+            manifest["mailboxes"] = ((result["mailboxes"] as? [OfflineJSON] ?? []) + local).filter { !deleted($0["id"] as! String, "Mailbox/set") }.map { overlay($0, "Mailbox/set") }; manifest["mailboxState"] = result["mailboxState"]; manifest["identities"] = result["identities"]; manifest["emailState"] = result["state"]; manifest["backgroundPull"] = result["snapshot"]; try save(changes); more = result["more"] as? Bool ?? false
         }
     }
     private func enc(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~")))! }
