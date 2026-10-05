@@ -16,6 +16,7 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --ignore-scripts
+      - run: npm install --ignore-scripts @capacitor/local-notifications@^8 @capacitor/push-notifications@^8
       - name: Package source and locked dependencies
         run: |
           tar --exclude='./.git' --exclude='./node_modules' --exclude='*/node_modules' -czf ../workspace-source.tgz .
