@@ -26,29 +26,29 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-source
-          path: ../workspace-source.tgz
+          path: ${{ github.workspace }}/../workspace-source.tgz
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-aa
-          path: ../deps-part-aa
+          path: ${{ github.workspace }}/../deps-part-aa
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ab
-          path: ../deps-part-ab
+          path: ${{ github.workspace }}/../deps-part-ab
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ac
-          path: ../deps-part-ac
+          path: ${{ github.workspace }}/../deps-part-ac
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ad
-          path: ../deps-part-ad
+          path: ${{ github.workspace }}/../deps-part-ad
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: workspace-deps-ae
-          path: ../deps-part-ae
+          path: ${{ github.workspace }}/../deps-part-ae
           if-no-files-found: ignore
