@@ -2,6 +2,8 @@ import type { Id, Invocation, JmapResponse, JmapSession, MethodError, UploadResp
 import { withBase } from "@/lib/basePath";
 import { isNativeApp } from "@/lib/mobile/config";
 import { t } from "@/lib/i18n";
+import type { OfflineEngine } from "@/lib/offline/engine";
+import type { OfflineOperation } from "@/lib/offline/types";
 
 export const CAP = {
   core: "urn:ietf:params:jmap:core",
@@ -112,6 +114,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
 
 export class JmapClient {
   session: JmapSession | null = null;
+  offline: OfflineEngine | null = null;
   private pending: Pending[] = [];
   private flushScheduled = false;
   private callCounter = 0;
@@ -216,8 +219,13 @@ export class JmapClient {
     const batch = this.pending;
     this.pending = [];
     const max = this.maxCallsInRequest;
-    for (let i = 0; i < batch.length; i += max) {
-      void this.sendBatch(batch.slice(i, i + max));
+    // Independent calls from calendar/contacts must not force cached mail to
+    // use the network. Explicit chains still keep their original call order.
+    const groups = this.offline?.manifest
+      ? [batch.filter((p) => this.offline!.handles([[p.method, p.args, "route"]])), batch.filter((p) => !this.offline!.handles([[p.method, p.args, "route"]]))]
+      : [batch];
+    for (const group of groups) for (let i = 0; i < group.length; i += max) {
+      void this.sendBatch(group.slice(i, i + max));
     }
   }
 
@@ -268,15 +276,18 @@ export class JmapClient {
   }
 
   /** Low-level request: send invocations verbatim, return raw response. */
-  async request(methodCalls: Invocation[], using: string[] = [CAP.core, CAP.mail], createdIds?: Record<string, Id>): Promise<JmapResponse> {
-    const body: Record<string, unknown> = { using: this.supportedUsing(using), methodCalls };
-    if (createdIds) body.createdIds = createdIds;
-    const res = await apiFetch<JmapResponse>("/api/jmap", { method: "POST", body: JSON.stringify(body) });
+  async request(methodCalls: Invocation[], using: string[] = [CAP.core, CAP.mail], createdIds?: Record<string, Id>, options: { readyAt?: number } = {}): Promise<JmapResponse> {
+    const body = { using: this.supportedUsing(using), methodCalls, ...(createdIds ? { createdIds } : {}) };
+    const res = this.offline?.manifest ? await this.offline.request(body, options) : await this.requestOnline(body);
     if (res.sessionState && this.session && res.sessionState !== this.session.state && res.sessionState !== this.announcedState) {
       this.announcedState = res.sessionState;
       for (const fn of this.stateHandlers) fn(res.sessionState);
     }
     return res;
+  }
+
+  requestOnline(body: OfflineOperation["request"]): Promise<JmapResponse> {
+    return apiFetch<JmapResponse>("/api/jmap", { method: "POST", body: JSON.stringify(body) });
   }
 
   /**
@@ -285,12 +296,12 @@ export class JmapClient {
    */
   async chain(
     calls: Array<[method: string, args: Record<string, unknown>, id: string]>,
-    opts: { using?: string[]; allowErrors?: boolean } = {},
+    opts: { using?: string[]; allowErrors?: boolean; readyAt?: number } = {},
   ): Promise<Map<string, Record<string, unknown>[]>> {
     const using = new Set<string>([CAP.core]);
     for (const [m] of calls) for (const u of usingFor(m)) using.add(u);
     for (const u of opts.using ?? []) using.add(u);
-    const res = await this.request(calls, [...using]);
+    const res = await this.request(calls, [...using], undefined, { readyAt: opts.readyAt });
     const out = new Map<string, Record<string, unknown>[]>();
     for (const [name, args, id] of res.methodResponses) {
       if (name === "error" && !opts.allowErrors) {
@@ -318,8 +329,16 @@ export class JmapClient {
   upload(
     accountId: Id,
     data: Blob,
-    opts: { type?: string; onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal } = {},
+    opts: { type?: string; onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal; queueForMail?: boolean } = {},
   ): Promise<UploadResponse> {
+    if (opts.queueForMail && this.offline?.manifest?.accountId === accountId && this.offline.manifest.session.ihasmail?.offlineSync) {
+      if (opts.signal?.aborted) return Promise.reject(new ApiError(0, "aborted", "Upload canceled"));
+      return this.offline.upload(data).then((result) => { opts.onProgress?.(data.size, data.size); return result; });
+    }
+    return this.uploadOnline(accountId, data, opts);
+  }
+
+  uploadOnline(accountId: Id, data: Blob, opts: { type?: string; onProgress?: (loaded: number, total: number) => void; signal?: AbortSignal } = {}): Promise<UploadResponse> {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open("POST", this.uploadUrl(accountId));
@@ -348,6 +367,10 @@ export class JmapClient {
 
   /** Fetch a blob's content as text (via the download proxy). */
   async fetchBlobText(accountId: Id, blobId: Id, type = "text/plain"): Promise<string> {
+    if (this.offline?.manifest?.accountId === accountId) {
+      const cached = await this.offline.blob(blobId);
+      if (cached) return cached.text();
+    }
     const res = await connectedFetch(this.downloadUrl(accountId, blobId, "blob.txt", type), { credentials: isNativeApp() ? "include" : "same-origin" });
     if (res.status === 401) {
       this.handleUnauthenticated();
@@ -358,6 +381,16 @@ export class JmapClient {
   }
 
   async fetchBlob(accountId: Id, blobId: Id, type = "application/octet-stream"): Promise<Blob> {
+    if (this.offline?.manifest?.accountId === accountId) {
+      const cached = await this.offline.blob(blobId);
+      if (cached) return cached;
+    }
+    const blob = await this.fetchBlobOnline(accountId, blobId, type);
+    if (this.offline?.manifest?.accountId === accountId) await this.offline.cacheBlob(blobId, blob);
+    return blob;
+  }
+
+  async fetchBlobOnline(accountId: Id, blobId: Id, type = "application/octet-stream"): Promise<Blob> {
     const res = await connectedFetch(this.downloadUrl(accountId, blobId, "blob", type), { credentials: isNativeApp() ? "include" : "same-origin" });
     if (res.status === 401) {
       this.handleUnauthenticated();

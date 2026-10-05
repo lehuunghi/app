@@ -4,7 +4,7 @@ import { connect } from "node:http2";
 
 export type Platform = "android" | "ios";
 export type PushResult = "sent" | "invalid" | "retry";
-export interface NativeMessage { binding: string; emailId: string }
+export interface NativeMessage { binding: string; emailId: string; offlineSync?: boolean }
 export interface NativeProvider {
   ready(platform: Platform): boolean;
   send(platform: Platform, token: string, message: NativeMessage): Promise<PushResult>;
@@ -22,13 +22,15 @@ export function signedToken(header: Record<string, unknown>, claims: Record<stri
 // Alert payloads are deliberately generic. Mail content and credentials never
 // leave the mail server for Firebase/APNs or appear on a locked device.
 export function androidPayload(token: string, message: NativeMessage) {
+  const data = { binding: message.binding, emailId: message.emailId };
+  if (message.offlineSync) return { message: { token, data, android: { priority: "HIGH", ttl: "300s" } } };
   return { message: { token, notification: { title: "Webmail", body: "Bạn có email mới." },
-    data: { ...message }, android: { priority: "HIGH", ttl: "300s", notification: {
+    data, android: { priority: "HIGH", ttl: "300s", notification: {
       channel_id: "webmail-new-mail", icon: "ic_notification", tag: "webmail-new-mail", sound: "default",
     } } } };
 }
 export function iosPayload(message: NativeMessage) {
-  return { aps: { alert: { title: "Webmail", body: "Bạn có email mới." }, sound: "default", "thread-id": "webmail-new-mail" }, ...message };
+  return { aps: { alert: { title: "Webmail", body: "Bạn có email mới." }, sound: "default", "thread-id": "webmail-new-mail", ...(message.offlineSync ? { "content-available": 1 } : {}) }, binding: message.binding, emailId: message.emailId };
 }
 
 /** Optional providers: missing configuration disables only that platform. */

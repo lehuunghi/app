@@ -5,7 +5,7 @@ const h = vi.hoisted(() => ({
   permission: vi.fn(), listeners: {} as Record<string, (v: any) => void>,
 }));
 vi.mock("@capacitor/core", () => ({ Capacitor: { getPlatform: () => h.platform, isNativePlatform: () => true } }));
-vi.mock("@/jmap/client", () => ({ apiFetch: h.api }));
+vi.mock("@/jmap/client", () => ({ apiFetch: h.api, client: { offline: null } }));
 vi.mock("@/store/session", () => ({ useSession: { getState: () => h.current } }));
 vi.mock("@/store/mail", () => ({ useMail: { getState: () => ({ roleId: () => "inbox", loadMailboxes: async () => {} }) } }));
 vi.mock("@capacitor/push-notifications", () => ({ PushNotifications: {

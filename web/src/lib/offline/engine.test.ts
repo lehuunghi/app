@@ -1,0 +1,279 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
+import type { Email, Invocation, JmapResponse, JmapSession, Mailbox } from "@/jmap/types";
+import { OfflineEngine } from "./engine";
+import { MemoryOfflineStorage } from "./storage";
+import { JmapClient } from "@/jmap/client";
+import type { OfflineOperation, OfflineTransport } from "./types";
+
+const session = { username: "reader@example.test", capabilities: { "urn:ietf:params:jmap:core": {}, "urn:ietf:params:jmap:mail": {}, "urn:ietf:params:jmap:submission": {} },
+  accounts: { a: { name: "Reader", isPersonal: true, isReadOnly: false, accountCapabilities: {} } }, primaryAccounts: { "urn:ietf:params:jmap:mail": "a" }, state: "session-1",
+  apiUrl: "", downloadUrl: "", uploadUrl: "", eventSourceUrl: "", ihasmail: { remember: true, offlineSync: 1, loginName: "reader@example.test", sessionId: "s", appName: "Webmail", imageProxy: false, maxUploadBytes: 50_000_000 } } as JmapSession;
+const boxes = [{ id: "inbox", name: "Inbox", role: "inbox", parentId: null, isSubscribed: true, totalEmails: 1, unreadEmails: 1 }, { id: "trash", name: "Trash", role: "trash", parentId: null, isSubscribed: true }] as Mailbox[];
+const email = (id = "e1"): Email => ({ id, blobId: `raw-${id}`, threadId: `t-${id}`, mailboxIds: { inbox: true }, keywords: {}, from: [{ name: "Sender", email: "sender@example.test" }], to: [], subject: "Offline mail", preview: "Persist me", receivedAt: new Date().toISOString(), sentAt: null, size: 100, hasAttachment: true,
+  bodyValues: { text: { value: "Persist me", isEncodingProblem: false, isTruncated: false } }, textBody: [{ partId: "text", type: "text/plain", size: 10, blobId: "body", charset: "utf-8", name: null, disposition: null, cid: null }], htmlBody: [], attachments: [{ partId: "att", name: "a.txt", type: "text/plain", size: 5, blobId: "attachment", charset: "utf-8", disposition: "attachment", cid: null }] } as Email);
+function fakeServer() {
+  const emails = new Map<string, Email>([["e1", email()]]);
+  const mailboxes = structuredClone(boxes);
+  let state = "S1", next = 1, failChanges = false;
+  const request = vi.fn(async (body: OfflineOperation["request"]): Promise<JmapResponse> => {
+    const responses: Invocation[] = [];
+    for (const [name, args, id] of body.methodCalls) {
+      let result: Record<string, unknown>;
+      if (name === "Mailbox/get") result = { accountId: "a", state: "M1", list: structuredClone(mailboxes), notFound: [] };
+      else if (name === "Thread/get") result = { accountId: "a", state, list: (args.ids as string[]).map((id) => ({ id, emailIds: [...emails.values()].filter((email) => email.threadId === id).map((email) => email.id) })), notFound: [] };
+      else if (name === "Email/query") result = { accountId: "a", queryState: state, ids: [...emails.keys()].slice(Number(args.position ?? 0), Number(args.position ?? 0) + Number(args.limit ?? 100)), position: args.position ?? 0 };
+      else if (name === "Email/get") {
+        const ids = args.ids as string[];
+        const full = Boolean(args.fetchTextBodyValues || args.fetchHTMLBodyValues);
+        result = { accountId: "a", state, list: ids.flatMap((id) => {
+          const e = emails.get(id); if (!e) return [];
+          return [full ? e : Object.fromEntries(Object.entries(e).filter(([key]) => (args.properties as string[]).includes(key)))];
+        }), notFound: ids.filter((id) => !emails.has(id)) };
+      } else if (name === "Email/changes") {
+        if (failChanges) { responses.push(["error", { type: "cannotCalculateChanges" }, id]); continue; }
+        result = { accountId: "a", oldState: args.sinceState, newState: state, hasMoreChanges: false, created: [], updated: state === args.sinceState ? [] : [...emails.keys()], destroyed: [] };
+      } else throw new Error(`Unexpected ${name}`);
+      responses.push([name, result, id]);
+    }
+    return { methodResponses: responses, sessionState: "session-1" };
+  });
+  const operation = vi.fn(async (_op: OfflineOperation, body: OfflineOperation["request"]): Promise<JmapResponse> => {
+    const responses: Invocation[] = [], creations: Record<string, string> = {};
+    for (const [name, args, call] of body.methodCalls) {
+      const created: Record<string, { id: string }> = {};
+      if (name === "Email/set") {
+        for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, object>)) {
+          const id = `server-${next++}`; creations[key] = id; created[key] = { id };
+          emails.set(id, { ...email(id), ...value, id } as Email);
+        }
+        for (const id of (args.destroy ?? []) as string[]) emails.delete(id);
+        for (const [id, patch] of Object.entries((args.update ?? {}) as Record<string, Record<string, unknown>>)) {
+          const e = emails.get(id)!;
+          for (const [path, value] of Object.entries(patch)) {
+            if (path === "mailboxIds") e.mailboxIds = value as Record<string, boolean>;
+            else if (path.startsWith("keywords/")) { const key = path.slice(9); if (value) e.keywords[key] = true; else delete e.keywords[key]; }
+          }
+        }
+      } else if (name === "Mailbox/set") {
+        for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, object>)) {
+          const id = `box-${next++}`; created[key] = { id }; mailboxes.push({ ...boxes[0], ...value, id, role: null } as Mailbox);
+        }
+      } else if (name === "EmailSubmission/set") {
+        for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, { emailId: string }>)) {
+          const id = value.emailId.startsWith("#") ? creations[value.emailId.slice(1)]! : value.emailId;
+          expect(emails.has(id)).toBe(true);
+          created[key] = { id: `submission-${next++}` };
+        }
+      }
+      responses.push([name, { accountId: "a", oldState: state, newState: `S${++next}`, created }, call]);
+    }
+    state = `S${next}`;
+    return { methodResponses: responses, sessionState: "session-1" };
+  });
+  const blob = vi.fn(async () => new Blob(["file"], { type: "text/plain" }));
+  const upload = vi.fn(async (_account: string, blob: Blob) => ({ accountId: "a", blobId: "uploaded-1", type: blob.type, size: blob.size }));
+  const transport: OfflineTransport = { request, operation, blob, upload };
+  return { emails, transport, request, operation, blob, upload, change: () => { state = `S${++next}`; }, stale: () => { failChanges = true; } };
+}
+const body = (methodCalls: Invocation[]) => ({ using: Object.keys(session.capabilities), methodCalls });
+
+beforeEach(() => { vi.stubGlobal("crypto", webcrypto); });
+describe("durable offline mail", () => {
+  it("downloads only missing bodies when an online conversation contains already cached mail", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    server.emails.set("e2", { ...email("e2"), threadId: "t-e1" });
+    server.request.mockClear();
+    const result = await engine.request(body([
+      ["Thread/get", { accountId: "a", ids: ["t-e1"] }, "thread"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "thread", name: "Thread/get", path: "/list/*/emailIds" }, fetchTextBodyValues: true }, "mail"],
+    ]));
+    expect((result.methodResponses[1]![1].list as Email[]).map((email) => email.id)).toEqual(["e1", "e2"]);
+    const fullGets = server.request.mock.calls.flatMap(([request]) => request.methodCalls.filter(([name, args]) => name === "Email/get" && args.fetchTextBodyValues));
+    expect(fullGets.map((call) => call[1].ids)).toEqual([["e2"]]);
+  });
+  it("serves cached mail even when a simultaneous non-mail request needs the unavailable network", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); await engine.restore();
+    const client = new JmapClient(); client.offline = engine; client.session = session;
+    const fetch = globalThis.fetch;
+    try {
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+      const results = await Promise.allSettled([
+        client.call<{ list: Mailbox[] }>("Mailbox/get", { accountId: "a", ids: null }),
+        client.call("Quota/get", { accountId: "a", ids: null }),
+      ]);
+      expect(results[0].status).toBe("fulfilled");
+      if (results[0].status === "fulfilled") expect(results[0].value.list.some((box) => box.id === "inbox")).toBe(true);
+      expect(results[1].status).toBe("rejected");
+    } finally { vi.stubGlobal("fetch", fetch); }
+  });
+  it("opens cached conversations and query pages using chained JMAP result references", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); await engine.restore();
+    server.request.mockClear();
+    const conversation = await engine.request(body([
+      ["Thread/get", { accountId: "a", ids: ["t-e1"] }, "thread"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "thread", name: "Thread/get", path: "/list/*/emailIds" }, fetchTextBodyValues: true }, "mail"],
+    ]));
+    expect((conversation.methodResponses[1]![1].list as Email[])[0]?.bodyValues?.text?.value).toBe("Persist me");
+    const page = await engine.request(body([
+      ["Email/query", { accountId: "a", filter: { inMailbox: "inbox" } }, "query"],
+      ["Email/get", { accountId: "a", "#ids": { resultOf: "query", name: "Email/query", path: "/ids" } }, "mail"],
+      ["Thread/get", { accountId: "a", "#ids": { resultOf: "mail", name: "Email/get", path: "/list/*/threadId" } }, "thread"],
+    ]));
+    expect((page.methodResponses[2]![1].list as { emailIds: string[] }[])[0]?.emailIds).toEqual(["e1"]);
+    const invalid = await engine.request(body([["Email/get", { accountId: "a", "#ids": { resultOf: "missing", name: "Thread/get", path: "/list/*/emailIds" } }, "bad"]]));
+    expect(invalid.methodResponses[0]).toEqual(["error", { type: "invalidResultReference" }, "bad"]);
+    expect(server.request).not.toHaveBeenCalled();
+  });
+  it("keeps pending folder changes across server refresh and restores folders when cancelled", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Mailbox/set", { accountId: "a", update: { inbox: { name: "Renamed" } } }, "rename"]]));
+    const rename = engine.manifest!.operations[0]!.id;
+    await engine.request(body([["Mailbox/set", { accountId: "a", destroy: ["trash"] }, "delete"]]));
+    const deletion = engine.manifest!.operations[1]!.id;
+    const made = await engine.request(body([["Mailbox/set", { accountId: "a", create: { box: { name: "Local folder", parentId: null } } }, "create"]]));
+    const localId = (made.methodResponses[0]![1].created as Record<string, { id: string }>).box!.id;
+    const creation = engine.manifest!.operations[2]!.id;
+    await engine.request(body([["Mailbox/get", { accountId: "a", ids: null }, "get"]]));
+    expect(engine.manifest!.mailboxes.find((b) => b.id === "inbox")?.name).toBe("Renamed");
+    expect(engine.manifest!.mailboxes.some((b) => b.id === "trash")).toBe(false);
+    const restored = new OfflineEngine(disk, server.transport); await restored.restore();
+    await restored.cancel(creation); await restored.cancel(deletion); await restored.cancel(rename);
+    expect(restored.manifest!.mailboxes.some((b) => b.id === localId)).toBe(false);
+    expect(restored.manifest!.mailboxes.find((b) => b.id === "inbox")?.name).toBe("Inbox");
+    expect(restored.manifest!.mailboxes.some((b) => b.id === "trash")).toBe(true);
+  });
+  it("replaces an acknowledged local folder with its server id without duplicate folders", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Mailbox/set", { accountId: "a", create: { box: { name: "New folder", parentId: null } } }, "create"]]));
+    await engine.sync();
+    expect(engine.manifest!.operations).toHaveLength(0);
+    expect(engine.manifest!.mailboxes.filter((b) => b.name === "New folder")).toHaveLength(1);
+    expect(engine.manifest!.mailboxes.find((b) => b.name === "New folder")?.id).not.toMatch(/^offline:/);
+  });
+  it("downloads bodies and attachments once, then reads them after app restart without network", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    expect(engine.status.complete).toBe(1);
+    expect(server.blob).toHaveBeenCalledTimes(2);
+    await engine.sync();
+    expect(server.blob).toHaveBeenCalledTimes(2);
+    const rebooted = new OfflineEngine(disk, server.transport);
+    await rebooted.restore();
+    server.request.mockClear();
+    const result = await rebooted.request(body([["Email/get", { accountId: "a", ids: ["e1"], fetchTextBodyValues: true }, "g"]]));
+    expect((result.methodResponses[0]![1].list as Email[])[0]?.bodyValues?.text?.value).toBe("Persist me");
+    expect((await rebooted.blob("attachment"))?.size).toBe(4);
+    expect(server.request).not.toHaveBeenCalled();
+  });
+  it("keeps read/star/move intent across restart and flushes it when reconnected", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); engine.setOnline(false);
+    await engine.request(body([["Email/set", { accountId: "a", update: { e1: { "keywords/$seen": true, "keywords/$flagged": true, mailboxIds: { trash: true } } } }, "set"]]));
+    expect(server.operation).not.toHaveBeenCalled();
+    const rebooted = new OfflineEngine(disk, server.transport); await rebooted.restore();
+    const result = await rebooted.request(body([["Email/query", { accountId: "a", filter: { inMailbox: "inbox" } }, "q"]]));
+    expect(result.methodResponses[0]![1].ids).toEqual([]);
+    expect(rebooted.status.pending).toBe(1);
+    await rebooted.sync();
+    expect(server.emails.get("e1")?.keywords.$seen).toBe(true);
+    expect(server.emails.get("e1")?.mailboxIds).toEqual({ trash: true });
+    expect(rebooted.status.pending).toBe(0);
+  });
+  it("keeps an offline deletion hidden while an uncertain server response is reconciled", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); engine.setOnline(false);
+    await engine.request(body([["Email/set", { accountId: "a", destroy: ["e1"] }, "delete"]]));
+    server.operation.mockRejectedValue(Object.assign(new Error(), { code: "operation_uncertain", status: 409 }));
+    server.change(); await engine.sync();
+    expect(engine.status.cached).toBe(0);
+    expect(engine.status.issues).toBe(1);
+    const result = await engine.request(body([["Email/get", { accountId: "a", ids: ["e1"], fetchTextBodyValues: true }, "g"]]));
+    expect(result.methodResponses[0]![1].list).toEqual([]);
+  });
+  it("persists a send with offline attachments and preserves the same operation id on retry", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); engine.setOnline(false);
+    const uploaded = await engine.upload(new Blob(["draft attachment"], { type: "text/plain" }));
+    const request = body([["Email/set", { accountId: "a", create: { m: { subject: "Send later", mailboxIds: { inbox: true }, keywords: { $draft: true }, bodyValues: { text: { value: "Body" } }, textBody: [], htmlBody: [], attachments: [{ blobId: uploaded.blobId, type: uploaded.type }] } } }, "e"], ["EmailSubmission/set", { accountId: "a", create: { s: { emailId: "#m", identityId: "identity" } } }, "s"]]);
+    const result = await engine.request(request);
+    const operationId = String(result.methodResponses[1]![1].__offlineQueued);
+    expect(engine.status.pending).toBe(1);
+    const rebooted = new OfflineEngine(disk, server.transport); await rebooted.restore();
+    expect(rebooted.manifest?.operations[0]?.id).toBe(operationId);
+    await rebooted.sync();
+    expect(server.upload).toHaveBeenCalledTimes(1);
+    expect(server.operation).toHaveBeenCalledWith(expect.objectContaining({ id: operationId }), expect.objectContaining({ methodCalls: expect.any(Array) }));
+    expect(JSON.stringify(server.operation.mock.calls[0]?.[1])).toContain("uploaded-1");
+    expect(rebooted.status.pending).toBe(0);
+  });
+  it("does not advance UI state when the durable queue write fails", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    vi.spyOn(disk, "commit").mockRejectedValueOnce(new Error("disk full"));
+    await expect(engine.request(body([["Email/set", { accountId: "a", update: { e1: { "keywords/$seen": true } } }, "set"]]))).rejects.toThrow("disk full");
+    expect(engine.status.pending).toBe(0);
+    const result = await engine.request(body([["Email/get", { accountId: "a", ids: ["e1"], fetchTextBodyValues: true }, "g"]]));
+    expect((result.methodResponses[0]![1].list as Email[])[0]?.keywords.$seen).toBeUndefined();
+  });
+  it("reconciles destroyed cached messages after a stale cursor and clears data on logout", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync(); server.emails.delete("e1"); server.stale();
+    await engine.sync(); expect(engine.status.cached).toBe(0);
+    await engine.clear();
+    const rebooted = new OfflineEngine(disk, server.transport); expect(await rebooted.restore()).toBeNull();
+  });
+  it("preserves the undo deadline and encrypted composer record across restart", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.writeEditors({ drafts: [{ subject: "Unfinished" }] });
+    await engine.request(body([["Email/set", { accountId: "a", update: { e1: { "keywords/$seen": true } } }, "set"]]), { readyAt: Date.now() + 60000 });
+    const rebooted = new OfflineEngine(disk, server.transport); await rebooted.restore(); await rebooted.sync();
+    expect(server.operation).not.toHaveBeenCalled();
+    expect(await rebooted.readEditors()).toEqual({ drafts: [{ subject: "Unfinished" }] });
+    await rebooted.cancel(rebooted.manifest!.operations[0]!.id); expect(rebooted.status.pending).toBe(0);
+  });
+  it("blocks automatic restore after an observed 401 but keeps pending work for reauthentication", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Email/set", { accountId: "a", update: { e1: { "keywords/$flagged": true } } }, "set"]]));
+    const id = engine.manifest!.operations[0]!.id;
+    await engine.expire(); const rebooted = new OfflineEngine(disk, server.transport);
+    expect(await rebooted.restore()).toBeNull(); await rebooted.activate(session);
+    expect(rebooted.manifest!.operations[0]!.id).toBe(id);
+  });
+  it("reconciles an uncertain action using its original UUID", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    await engine.request(body([["Email/set", { accountId: "a", update: { e1: { "keywords/$seen": true } } }, "set"]]));
+    server.operation.mockRejectedValueOnce(Object.assign(new Error(), { status: 409, code: "operation_uncertain" }));
+    await engine.sync(); expect(engine.status.issues).toBe(1); await engine.sync();
+    expect(server.operation.mock.calls[0]![0].id).toBe(server.operation.mock.calls[1]![0].id); expect(engine.status.issues).toBe(0);
+  });
+  it("retains an unsent message in local Outbox when submission alone is rejected", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session); await engine.sync();
+    const result = await engine.request(body([["Email/set", { accountId: "a", create: { m: { subject: "Unsent", mailboxIds: { inbox: true }, bodyStructure: { partId: "text", type: "text/plain" }, bodyValues: { text: { value: "offline: literal content" } } } } }, "e"], ["EmailSubmission/set", { accountId: "a", create: { s: { emailId: "#m", identityId: "identity" } } }, "s"]]));
+    const id = (result.methodResponses[0]![1].created as Record<string, { id: string }>).m!.id;
+    server.operation.mockResolvedValueOnce({ sessionState: "s", methodResponses: [["Email/set", { created: { m: { id: "real" } } }, "e"], ["EmailSubmission/set", { notCreated: { s: { type: "forbidden" } } }, "s"]] });
+    await engine.sync();
+    const query = await engine.request(body([["Email/query", { accountId: "a", filter: { inMailbox: "offline:outbox" } }, "q"]]));
+    expect(query.methodResponses[0]![1].ids).toContain(id);
+    const stored = await engine.request(body([["Email/get", { accountId: "a", ids: [id], fetchTextBodyValues: true }, "g"]]));
+    expect((stored.methodResponses[0]![1].list as Email[])[0]!.textBody?.[0]?.partId).toBe("text");
+    await engine.sync(); expect(server.operation).toHaveBeenCalledTimes(1);
+  });
+  it("keeps a downloaded body when an attachment fails, then resumes without fetching the body again", async () => {
+    const disk = new MemoryOfflineStorage(), server = fakeServer(), engine = new OfflineEngine(disk, server.transport);
+    await engine.activate(session);
+    server.blob.mockRejectedValueOnce(Object.assign(new Error(), { status: 0, code: "network_error" }));
+    await engine.sync(); expect(engine.status.complete).toBe(0);
+    await engine.sync(); expect(engine.status.complete).toBe(1);
+    expect(server.request.mock.calls.filter(([b]) => b.methodCalls.some(([n, a]) => n === "Email/get" && a.fetchTextBodyValues))).toHaveLength(1);
+  });
+});

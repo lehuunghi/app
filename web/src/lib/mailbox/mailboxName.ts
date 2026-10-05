@@ -1,4 +1,4 @@
-import { tc } from "@/lib/i18n";
+import { tc, t } from "@/lib/i18n";
 import type { Mailbox } from "@/jmap/types";
 
 /**
@@ -46,8 +46,9 @@ const ROLE_NAMES: Record<string, () => string> = {
 };
 
 /** The folder's name as the reader should see it. */
-export function mailboxDisplayName(mailbox: { name: string; role?: string | null } | null | undefined): string {
+export function mailboxDisplayName(mailbox: { id?: string; name: string; role?: string | null } | null | undefined): string {
   if (!mailbox) return "";
+  if (mailbox.id === "offline:outbox") return t("Outbox");
   const localized = mailbox.role ? ROLE_NAMES[mailbox.role] : undefined;
   return localized ? localized() : mailbox.name;
 }

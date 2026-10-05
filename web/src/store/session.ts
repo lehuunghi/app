@@ -11,6 +11,7 @@ import { clearAllData, clearSignedInData, setDeviceTrusted } from "@/lib/storage
 import { startIdleLogout, stopIdleLogout } from "@/lib/idleLogout";
 import { clearNativeSession } from "@/lib/mobile/runtime";
 import { nativeSessionBlocked, allowNativeSession, blockNativeSession } from "@/lib/mobile/config";
+import { isConnectionFailure } from "@/lib/offline/engine";
 
 export type AuthStatus = "loading" | "anonymous" | "authenticated";
 
@@ -56,11 +57,18 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const s = await apiFetch<JmapSession>("/api/auth/session");
       if (generation !== sessionGeneration || nativeSessionBlocked()) return;
+      await import("@/lib/offline/runtime").then((o) => o.prepareOffline(s)).catch(() => undefined);
+      if (generation !== sessionGeneration || nativeSessionBlocked()) return;
       applySession(s, set);
     } catch (err) {
       if (generation !== sessionGeneration || nativeSessionBlocked()) return;
       if (err instanceof ApiError && err.status === 401) set({ status: "anonymous", session: null, accountId: null });
-      else set({ status: "anonymous", error: (err as Error).message });
+      else if (isConnectionFailure(err)) {
+        const cached = await import("@/lib/offline/runtime").then((o) => o.restoreOffline()).catch(() => null);
+        if (generation !== sessionGeneration || nativeSessionBlocked()) return;
+        if (cached) applySession(cached, set);
+        else set({ status: "anonymous", error: (err as Error).message });
+      } else set({ status: "anonymous", error: (err as Error).message });
     }
   },
 
@@ -73,12 +81,15 @@ export const useSession = create<SessionState>((set, get) => ({
     });
     if (generation !== sessionGeneration) return;
     allowNativeSession();
+    await import("@/lib/offline/runtime").then((o) => o.prepareOffline(s)).catch(() => undefined);
+    if (generation !== sessionGeneration || nativeSessionBlocked()) return;
     applySession(s, set);
   },
 
   async logout() {
     sessionGeneration++;
     blockNativeSession();
+    const offlineStopped = import("@/lib/offline/runtime").then((o) => o.stopOffline(true)).catch(() => undefined);
     const nativeNotifications = import("@/lib/mobile/notifications").then((n) => n.stopNativeNotifications()).catch(() => undefined);
     push.stop();
     setServerLocale(null);
@@ -113,6 +124,7 @@ export const useSession = create<SessionState>((set, get) => ({
     }
     stopIdleLogout();
     await nativeNotifications;
+    await offlineStopped.catch(() => undefined);
     try { await clearNativeSession(); } catch { /* logout UI must still complete */ }
     // Unconditional. The push subscription above is removed for exactly this
     // reason -- that a browser left holding someone's mail is somebody else's
@@ -176,6 +188,7 @@ function applySession(s: JmapSession, set: (p: Partial<SessionState>) => void) {
 }
 
 client.onUnauthenticated(() => {
+  void import("@/lib/offline/runtime").then(async (o) => { await o.stopOffline(); await o.offline.expire(); }).catch(() => undefined);
   void import("@/lib/mobile/notifications").then((n) => n.stopNativeNotifications()).catch(() => undefined);
   push.stop();
   stopSettingsSync();

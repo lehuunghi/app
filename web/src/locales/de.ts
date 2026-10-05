@@ -55,6 +55,7 @@ import type { Catalog } from "@/lib/i18n";
  */
 export const catalog: Catalog = {
   strings: {
+    "Offline mail": "Offline-E-Mails",
     // ── Administration: domains ────────────────────────────────────
     "Domains": "Domains",
     "By hand": "Manuell",

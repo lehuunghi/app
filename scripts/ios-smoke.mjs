@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 mkdirSync("ios-smoke", { recursive: true });
 const run = (...args) => {
   console.log("xcrun " + args.join(" "));
@@ -17,12 +17,16 @@ try {
   if (device.state !== "Booted") run("simctl", "boot", device.udid);
   run("simctl", "bootstatus", device.udid, "-b");
   run("simctl", "install", device.udid, "ios/build/Build/Products/Debug-iphonesimulator/App.app");
-  const launch = run("simctl", "launch", device.udid, "com.lehuunghi.webmail");
+  const launch = run("simctl", "launch", device.udid, "com.lehuunghi.webmail", "--offline-store-smoke");
   await new Promise((resolve) => setTimeout(resolve, 10000));
+  const container = run("simctl", "get_app_container", device.udid, "com.lehuunghi.webmail", "data").trim();
+  const store = JSON.parse(readFileSync(container + "/Library/Caches/offline-store-smoke.json", "utf8"));
+  if (!store.passed) throw new Error("Native encrypted store test failed: " + JSON.stringify(store));
+  writeFileSync("ios-smoke/offline-store.json", JSON.stringify(store));
   const running = run("simctl", "spawn", device.udid, "launchctl", "list");
   if (!running.includes("com.lehuunghi.webmail")) throw new Error("App exited after launch");
   run("simctl", "io", device.udid, "screenshot", "ios-smoke/login.png");
-  report = { device: device.name, installed: true, launched: true, stillRunning: true, launch: launch.trim(), authenticatedMailTest: "No test account supplied" };
+  report = { device: device.name, installed: true, launched: true, stillRunning: true, offlineStore: store, launch: launch.trim(), authenticatedMailTest: "No test account supplied" };
 } catch (error) {
   report = { error: error.message }; process.exitCode = 1;
 } finally {

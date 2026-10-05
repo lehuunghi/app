@@ -1,7 +1,7 @@
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { apiFetch } from "@/jmap/client";
+import { apiFetch, client } from "@/jmap/client";
 import { useSession } from "@/store/session";
 import { isNativeApp, nativeSessionBlocked, ANDROID_PUSH_CONFIGURED } from "./config";
 import { withBase } from "@/lib/basePath";
@@ -75,7 +75,7 @@ export function initializeNativeNotifications(): Promise<void> {
         if (typeof notification.data?.binding === "string") openInbox(notification.data.binding);
       }));
       handles.push(await PushNotifications.addListener("pushNotificationReceived", ({ data }) => {
-        if (authenticated() && state.enabled && data?.binding === binding) void showNativeNotification(false, true);
+        if (authenticated() && state.enabled && data?.binding === binding) { void showNativeNotification(false, true); void import("@/lib/offline/runtime").then((o) => o.startOfflineSync()); }
       }));
       handles.push(await LocalNotifications.addListener("localNotificationActionPerformed", ({ notification }) => {
         if (typeof notification.extra?.binding === "string") openInbox(notification.extra.binding);
@@ -102,7 +102,7 @@ async function registerToken(epoch: number) {
   if (!pushToken || !authenticated() || !state.enabled || epoch !== generation) return;
   try {
     const result = await apiFetch<{ binding: string }>("/api/notifications/native", {
-      method: "POST", body: JSON.stringify({ installation: installation(), platform: platform(), token: pushToken }),
+      method: "POST", body: JSON.stringify({ installation: installation(), platform: platform(), token: pushToken, offlineSync: Boolean(client.offline?.manifest) }),
     }, { handleUnauthenticated: false });
     if (!authenticated() || !state.enabled || epoch !== generation) {
       // Disable/logout may have happened while the POST was in flight.
@@ -110,6 +110,7 @@ async function registerToken(epoch: number) {
       return;
     }
     binding = result.binding;
+    void import("@/lib/offline/runtime").then((o) => o.bindOfflineNotifications(binding)).catch(() => undefined);
     publish({ phase: "connected" });
     if (pendingTap) openInbox(pendingTap);
   } catch { if (epoch === generation && authenticated()) publish({ phase: "failed" }); }

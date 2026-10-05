@@ -159,7 +159,7 @@ Workflow này chạy khi cập nhật main và có thể chạy thủ công. Ch�
 | PDF | Mở/lưu qua bảng chia sẻ native |
 | Thông báo khi app đã đóng | Đã có FCM/APNs và backend; cần cấu hình và triển khai API mới |
 | Nhận nội dung từ Share sheet của app khác | Chưa tích hợp intent/share extension native |
-| Đọc thư ngoại tuyến | Chưa có kho thư offline |
+| Đọc thư ngoại tuyến | Kho mã hóa trên máy, tải nội dung và tệp; xem [thiết kế offline](OFFLINE-MAIL.md) |
 | APK/IPA đã ký, phát hành cửa hàng | Chưa thực hiện |
 
 Website/PWA dùng Web Push; Android/iOS dùng lớp thông báo native riêng. Đã bổ sung backend đăng ký thiết bị, theo dõi thư mới, gửi FCM/APNs và hủy đăng ký khi đăng xuất. Xem [cấu hình thông báo native](THONG-BAO-NATIVE.md).
