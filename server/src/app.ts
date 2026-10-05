@@ -746,7 +746,7 @@ export function createApp(basePath = config.basePath, nativeNotifications = nati
       };
       const op = c.req.param("operation");
       const payload = { request, base: input.base ?? {} };
-      const result = await offlineJournal.execute(`${session.username}\0${upstream.baseUrl}\0${accountId}`, op, payload, async (dispatched) => {
+      const result = await offlineJournal.execute(`${upstream.username}\0${upstream.baseUrl}\0${accountId}`, op, payload, async (dispatched) => {
         const body = markOfflineCreations(request, op);
         const base = input.base ?? {};
         const ids = Object.keys(base);

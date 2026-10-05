@@ -124,6 +124,9 @@ export class OfflineEngine {
     this.emails.clear();
     this.scope = "";
     await this.tail.catch(() => undefined);
+    this.manifest = null;
+    this.emails.clear();
+    this.scope = "";
     await this.store.clear();
     this.publish({ syncing: false, error: null });
   }
@@ -351,6 +354,10 @@ export class OfflineEngine {
     const m = this.manifest!;
     const queuedIds = new Set(m.operations.flatMap((op) => Object.keys(op.base)));
     return { ...result, methodResponses: result.methodResponses.map(([name, args, callId]) => {
+      if (name === "Mailbox/get") {
+        const ids = body.methodCalls.find((call) => call[2] === callId)?.[1].ids as Id[] | null;
+        return [name, { ...args, list: this.localMailboxes().filter((box) => !ids || ids.includes(box.id)) }, callId];
+      }
       if (name === "Email/get") return [name, { ...args, list: (args.list as Email[]).filter((e) => !queuedIds.has(e.id) || this.emails.has(e.id)).map((e) => queuedIds.has(e.id) ? { ...e, ...this.emails.get(e.id)!.email } : e) }, callId];
       if (name === "Email/query") {
         const query = body.methodCalls.find((call) => call[2] === callId)?.[1];
@@ -425,7 +432,7 @@ export class OfflineEngine {
         const code = errorCode(err);
         const next = clone(this.manifest);
         if (code === "operation_in_progress") continue;
-        next.operations = next.operations.map((o) => o.id === op.id ? { ...o, status: code === "operation_uncertain" ? "uncertain" : "failed", error: code } : o);
+        next.operations = next.operations.map((o) => o.id === op.id ? { ...o, status: ["operation_uncertain", "operation_id_reused"].includes(code) ? "uncertain" : "failed", error: code } : o);
         await this.save(next);
       }
     }

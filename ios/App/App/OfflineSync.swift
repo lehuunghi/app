@@ -12,8 +12,12 @@ private final class OfflineNoRedirect: NSObject, URLSessionTaskDelegate {
 /// Short, checkpointed native refreshes. iOS chooses when background work is allowed.
 final class OfflineSync {
     static let taskID = "com.lehuunghi.webmail.offline"
-    static var foreground = true
-    static var cancelled = false
+    private static let stateLock = NSLock()
+    private static var active = true, stopped = false, configurationVersion = 0
+    static var foreground: Bool { get { stateLock.lock(); defer { stateLock.unlock() }; return active } set { stateLock.lock(); active = newValue; stateLock.unlock() } }
+    static var cancelled: Bool { get { stateLock.lock(); defer { stateLock.unlock() }; return stopped } set { stateLock.lock(); stopped = newValue; stateLock.unlock() } }
+    static func beginConfiguration(_ foreground: Bool) -> Int { stateLock.lock(); defer { stateLock.unlock() }; active = foreground; configurationVersion += 1; return configurationVersion }
+    private static func currentConfiguration(_ version: Int) -> Bool { stateLock.lock(); defer { stateLock.unlock() }; return version == configurationVersion }
     private let db = OfflineDatabase.shared
     private var config: OfflineJSON = [:], manifest: OfflineJSON = [:]
     private var scope = ""
@@ -38,17 +42,20 @@ final class OfflineSync {
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
         try? BGTaskScheduler.shared.submit(request)
     }
-    static func cancel() { foreground = true; cancelled = true; BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskID) }
+    static func cancel() { _ = beginConfiguration(true); cancelled = true; BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: taskID) }
     static func refresh(_ completion: @escaping (UIBackgroundFetchResult) -> Void) {
         guard !foreground else { completion(.noData); return }
         cancelled = false
         OfflineDatabase.queue.async { let result = OfflineSync().run(); DispatchQueue.main.async { completion(result ? .newData : .failed) }; schedule() }
     }
-    static func configure(_ scope: String, _ account: String, _ active: Bool, _ binding: String?, _ cookies: [HTTPCookie]) throws {
-        foreground = active
+    static func configure(_ scope: String, _ account: String, _ active: Bool, _ binding: String?, _ cookies: [HTTPCookie], _ version: Int) throws {
+        guard currentConfiguration(version) else { return }
         let sync = OfflineSync()
         let previous = try sync.read("profile", "native")
-        let filtered = cookies.filter { ($0.domain == "webmail.jmail.vn" || $0.domain == ".jmail.vn") && $0.isSecure && ($0.expiresDate == nil || $0.expiresDate! > Date()) }
+        guard (try sync.read("profile", "active"))?["scope"] as? String == scope else { return }
+        var cookieMap: [String: HTTPCookie] = [:]
+        for cookie in cookies + (HTTPCookieStorage.shared.cookies ?? []) { cookieMap[cookie.domain + "\0" + cookie.path + "\0" + cookie.name] = cookie }
+        let filtered = cookieMap.values.filter { (["webmail.jmail.vn", ".webmail.jmail.vn", ".jmail.vn"].contains($0.domain)) && $0.isSecure && ($0.expiresDate == nil || $0.expiresDate! > Date()) }
         let cookie = filtered.map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
         let value: OfflineJSON = ["scope": scope, "accountId": account, "cookie": cookie, "binding": binding ?? (previous?["scope"] as? String == scope ? previous?["binding"] as? String ?? "" : "")]
         try sync.db.commit("profile", [["key": "native", "value": try encode(value)]])
@@ -139,7 +146,7 @@ final class OfflineSync {
                 if error.status >= 500 || error.status == 429 || error.status == 401 { throw error }
                 if error.code == "operation_in_progress" { continue }
                 var operations = manifest["operations"] as? [OfflineJSON] ?? []
-                if let index = operations.firstIndex(where: { $0["id"] as? String == id }) { operations[index]["status"] = error.code == "operation_uncertain" ? "uncertain" : "failed"; operations[index]["error"] = error.code }
+                if let index = operations.firstIndex(where: { $0["id"] as? String == id }) { operations[index]["status"] = ["operation_uncertain", "operation_id_reused"].contains(error.code) ? "uncertain" : "failed"; operations[index]["error"] = error.code }
                 manifest["operations"] = operations; try save()
             }
         }

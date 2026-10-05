@@ -133,11 +133,11 @@ public class OfflineMailStorePlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func bytes(_ call: CAPPluginCall) { run(call) { ["bytes": try OfflineDatabase.shared.bytes(call.getString("scope") ?? "")] } }
     @objc func configure(_ call: CAPPluginCall) {
         let active = call.getBool("active") ?? true
-        OfflineSync.foreground = active
+        let version = OfflineSync.beginConfiguration(active)
         DispatchQueue.main.async {
             guard let store = self.bridge?.webView?.configuration.websiteDataStore.httpCookieStore else { call.reject("Không thể lưu phiên đăng nhập.", "offline_storage_error"); return }
             store.getAllCookies { cookies in
-                self.run(call) { try OfflineSync.configure(call.getString("scope") ?? "", call.getString("accountId") ?? "", active, call.getString("binding"), cookies); return [:] }
+                self.run(call) { try OfflineSync.configure(call.getString("scope") ?? "", call.getString("accountId") ?? "", active, call.getString("binding"), cookies, version); return [:] }
             }
         }
     }

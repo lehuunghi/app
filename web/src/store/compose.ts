@@ -688,6 +688,7 @@ export const useCompose = create<ComposeState>((set, get) => ({
       const readyAt = Date.now() + delay * 1000;
       try {
         const operation = await sendInternal(d, get, readyAt);
+        void useMail.getState().loadMailboxes(); void useMail.getState().refreshList();
         set((s) => ({ drafts: s.drafts.filter((x) => x.key !== key), activeKey: s.activeKey === key ? null : s.activeKey }));
         const timer = autosaveTimers.get(key); if (timer) window.clearTimeout(timer); autosaveTimers.delete(key);
         toast.show(translate("Queued in Outbox. It will send when connected."), { duration: Math.max(5000, delay * 1000),
