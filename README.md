@@ -34,6 +34,12 @@ iOS: trên máy Mac có Xcode 26 trở lên, chạy `npm run mobile:ios`. Dự �
 
 Xem **[hướng dẫn Android/iOS bằng tiếng Việt](docs/APP-DI-DONG.md)** để build APK, thử trên điện thoại, ký bản phát hành và cấu hình máy chủ chung.
 
+## Container tự động trên GHCR
+
+Phần web/API của repository `app` được build và đẩy tự động lên
+`ghcr.io/lehuunghi/app:latest` khi cập nhật `main`, hỗ trợ AMD64 và ARM64.
+Xem [hướng dẫn GHCR](docs/GHCR.md) để tải image và triển khai.
+
 ## Máy chủ dùng chung
 
 Ứng dụng không chạy Node.js hoặc Stalwart bên trong điện thoại. Máy chủ Webmail hiện có cung cấp `/api/config`, `/api/auth/*`, `/api/jmap`, `/api/blob/*` và `/api/upload/*`; API được gọi bằng kết nối native. Một máy chủ dùng chung có thể phục vụ web, Android và iOS. Không cần mở CORS cho mọi nguồn hay tắt bảo vệ CSRF của website.
